@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
 import platform
 import queue
 import random
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -67,11 +70,11 @@ class ApiClient:
 
 
 class VolunteerApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, start_minimized: bool = False, auto_connect: bool = False):
         super().__init__()
         self.title("ConsentCompute")
-        self.geometry("560x520")
-        self.minsize(520, 480)
+        self.geometry("600x640")
+        self.minsize(560, 560)
 
         self.running = False
         self.worker_thread: threading.Thread | None = None
@@ -84,12 +87,18 @@ class VolunteerApp(tk.Tk):
         self.invite_var = tk.StringVar(value="")
         self.cpu_var = tk.IntVar(value=50)
         self.gpu_var = tk.BooleanVar(value=False)
+        self.autostart_var = tk.BooleanVar(value=False)
+        self.auto_connect_var = tk.BooleanVar(value=False)
         self.consent_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Parado")
 
         self.load_config()
         self.build_ui()
         self.after(250, self.drain_messages)
+        if start_minimized:
+            self.after(100, self.iconify)
+        if auto_connect:
+            self.after(800, self.start_from_saved_consent)
 
     def build_ui(self) -> None:
         root = ttk.Frame(self, padding=20)
@@ -124,8 +133,28 @@ class VolunteerApp(tk.Tk):
             variable=self.gpu_var,
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
+        startup_box = ttk.LabelFrame(root, text="Segundo plano", padding=12)
+        startup_box.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        ttk.Checkbutton(
+            startup_box,
+            text="Iniciar este app automaticamente com o Windows",
+            variable=self.autostart_var,
+            command=self.on_autostart_changed,
+        ).pack(anchor="w")
+        ttk.Checkbutton(
+            startup_box,
+            text="Comecar colaboracao automaticamente ao abrir o app",
+            variable=self.auto_connect_var,
+            command=self.save_config,
+        ).pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            startup_box,
+            text="O app nunca roda escondido: ele continua com janela, log e botao Parar.",
+            wraplength=520,
+        ).pack(anchor="w", pady=(8, 0))
+
         consent_box = ttk.LabelFrame(root, text="Consentimento", padding=12)
-        consent_box.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(14, 8))
+        consent_box.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 8))
         ttk.Label(consent_box, text=CONSENT_TEXT, wraplength=490).pack(anchor="w")
         ttk.Checkbutton(
             consent_box,
@@ -134,7 +163,7 @@ class VolunteerApp(tk.Tk):
         ).pack(anchor="w", pady=(10, 0))
 
         actions = ttk.Frame(root)
-        actions.grid(row=7, column=0, columnspan=2, sticky="ew", pady=10)
+        actions.grid(row=8, column=0, columnspan=2, sticky="ew", pady=10)
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
         self.start_button = ttk.Button(actions, text="Iniciar colaboracao", command=self.start)
@@ -142,12 +171,12 @@ class VolunteerApp(tk.Tk):
         self.stop_button = ttk.Button(actions, text="Parar", command=self.stop, state="disabled")
         self.stop_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        ttk.Label(root, text="Status").grid(row=8, column=0, sticky="w", pady=(10, 5))
-        ttk.Label(root, textvariable=self.status_var).grid(row=8, column=1, sticky="w", pady=(10, 5))
+        ttk.Label(root, text="Status").grid(row=9, column=0, sticky="w", pady=(10, 5))
+        ttk.Label(root, textvariable=self.status_var).grid(row=9, column=1, sticky="w", pady=(10, 5))
 
         self.log = tk.Text(root, height=8, wrap="word", state="disabled")
-        self.log.grid(row=9, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
-        root.rowconfigure(9, weight=1)
+        self.log.grid(row=10, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        root.rowconfigure(10, weight=1)
 
     def start(self) -> None:
         if self.running:
@@ -167,12 +196,29 @@ class VolunteerApp(tk.Tk):
         self.worker_thread = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker_thread.start()
 
+    def start_from_saved_consent(self) -> None:
+        if self.auto_connect_var.get() and self.consent_var.get():
+            self.messages.put("Inicio automatico autorizado pelo voluntario.")
+            self.start()
+        elif self.auto_connect_var.get():
+            self.messages.put("Inicio automatico bloqueado: consentimento nao esta marcado.")
+
     def stop(self) -> None:
         self.running = False
         self.status_var.set("Parando")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         self.messages.put("Colaboracao pausada pelo voluntario.")
+
+    def on_autostart_changed(self) -> None:
+        enabled = self.autostart_var.get()
+        ok, message = set_windows_autostart(enabled)
+        if not ok:
+            self.autostart_var.set(False)
+            messagebox.showwarning("Inicializacao automatica", message)
+        else:
+            self.messages.put(message)
+        self.save_config()
 
     def worker_loop(self) -> None:
         client = ApiClient(self.server_var.get().strip())
@@ -297,6 +343,9 @@ class VolunteerApp(tk.Tk):
             self.invite_var.set(data.get("invite", ""))
             self.cpu_var.set(int(data.get("cpu_limit", 50)))
             self.gpu_var.set(bool(data.get("allow_gpu", False)))
+            self.autostart_var.set(bool(data.get("autostart", False)))
+            self.auto_connect_var.set(bool(data.get("auto_connect", False)))
+            self.consent_var.set(bool(data.get("consent_accepted", False)))
         except Exception:
             return
 
@@ -310,11 +359,34 @@ class VolunteerApp(tk.Tk):
                     "invite": self.invite_var.get().strip(),
                     "cpu_limit": int(self.cpu_var.get()),
                     "allow_gpu": bool(self.gpu_var.get()),
+                    "autostart": bool(self.autostart_var.get()),
+                    "auto_connect": bool(self.auto_connect_var.get()),
+                    "consent_accepted": bool(self.consent_var.get()),
                 },
                 indent=2,
             ),
             encoding="utf-8",
         )
+
+
+def set_windows_autostart(enabled: bool) -> tuple[bool, str]:
+    if platform.system() != "Windows":
+        return False, "Inicializacao automatica so foi implementada para Windows neste MVP."
+    startup_dir = Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
+    startup_path = startup_dir / "ConsentCompute.cmd"
+    if not enabled:
+        if startup_path.exists():
+            startup_path.unlink()
+        return True, "Inicializacao automatica desativada."
+
+    startup_dir.mkdir(parents=True, exist_ok=True)
+    if getattr(sys, "frozen", False):
+        args = [sys.executable, "--minimized", "--auto-connect"]
+    else:
+        args = [sys.executable, str(Path(__file__).resolve()), "--minimized", "--auto-connect"]
+    command = subprocess.list2cmdline(args)
+    startup_path.write_text(f"@echo off\nstart \"\" /min {command}\n", encoding="utf-8")
+    return True, "Inicializacao automatica ativada para o proximo login do Windows."
 
 
 def throttle(cpu_limit_percent: int) -> None:
@@ -621,5 +693,13 @@ def binary_loss(prediction: float, label: float) -> float:
     return -(label * math.log(prediction) + (1 - label) * math.log(1 - prediction))
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="ConsentCompute volunteer app")
+    parser.add_argument("--minimized", action="store_true", help="abre minimizado")
+    parser.add_argument("--auto-connect", action="store_true", help="inicia colaboracao se ja autorizado")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    VolunteerApp().mainloop()
+    cli_args = parse_args()
+    VolunteerApp(start_minimized=cli_args.minimized, auto_connect=cli_args.auto_connect).mainloop()

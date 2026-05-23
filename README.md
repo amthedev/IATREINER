@@ -113,6 +113,30 @@ pyinstaller --onefile --windowed --name ConsentCompute volunteer_app.py
 
 O executavel fica em `client/dist/ConsentCompute.exe`.
 
+## Rodando em segundo plano no Windows
+
+O app tem duas opcoes visiveis para o voluntario:
+
+- `Iniciar este app automaticamente com o Windows`
+- `Comecar colaboracao automaticamente ao abrir o app`
+
+Quando a primeira opcao e marcada no Windows, o app cria este arquivo:
+
+```text
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ConsentCompute.cmd
+```
+
+Esse arquivo abre o app minimizado no proximo login do Windows. A colaboracao so comeca automaticamente se a segunda opcao tambem estiver marcada e se o consentimento estiver salvo no app.
+
+Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o Windows`, ou apagar o arquivo `ConsentCompute.cmd` da pasta Startup.
+
+Tambem da para iniciar manualmente minimizado:
+
+```powershell
+cd client
+py volunteer_app.py --minimized --auto-connect
+```
+
 ## Jobs disponiveis
 
 ### `hash_benchmark`
