@@ -785,12 +785,17 @@ def run_train_lora(
     except Exception as exc:
         raise RuntimeError("Executor LoRA nao encontrado no worker") from exc
 
+    local_payload = dict(payload)
+    local_payload.setdefault("local_checkpoint", True)
+    local_payload.setdefault("local_checkpoint_key", job_id)
+    local_payload.setdefault("adapter_name", job_id)
+
     def on_checkpoint(metadata: dict) -> None:
         checkpoint_zip_path = metadata.get("checkpoint_zip_path")
-        checkpoint_output_url = payload.get("checkpoint_output_url") or payload.get("checkpoint_url")
+        checkpoint_output_url = local_payload.get("checkpoint_output_url") or local_payload.get("checkpoint_url")
         checkpoint_read_url = (
-            payload.get("checkpoint_input_url")
-            or payload.get("checkpoint_url")
+            local_payload.get("checkpoint_input_url")
+            or local_payload.get("checkpoint_url")
             or checkpoint_output_url
         )
         uploaded = False
@@ -804,12 +809,15 @@ def run_train_lora(
                 "worker_token": worker_token,
                 "checkpoint_url": str(checkpoint_read_url) if checkpoint_read_url else None,
                 "checkpoint_step": int(metadata.get("checkpoint_step") or 0),
-                "metadata": {"uploaded": uploaded},
+                "metadata": {
+                    "uploaded": uploaded,
+                    "local_checkpoint_path": metadata.get("local_checkpoint_path"),
+                },
             },
         )
 
-    result = train_lora_job(payload, APP_DIR / "lora_runs", is_running, on_checkpoint=on_checkpoint)
-    output_url = payload.get("output_url")
+    result = train_lora_job(local_payload, APP_DIR / "lora_runs", is_running, on_checkpoint=on_checkpoint)
+    output_url = local_payload.get("output_url")
     uploaded = False
     if output_url and result.get("adapter_zip_path"):
         with Path(str(result["adapter_zip_path"])).open("rb") as handle:

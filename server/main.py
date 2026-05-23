@@ -549,6 +549,7 @@ def sanitize_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "checkpoint_url": "url",
                 "checkpoint_input_url": "url",
                 "checkpoint_output_url": "url",
+                "local_checkpoint": "bool",
                 "texts": "list",
                 "adapter_name": "str",
                 "max_steps": "int",

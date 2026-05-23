@@ -40,8 +40,9 @@ def train_lora_job(
         return {"status": "cancelled_before_start"}
 
     model_id = str(payload.get("model_id") or payload.get("base_model_url") or "distilgpt2")
-    adapter_name = safe_name(str(payload.get("adapter_name") or f"adapter-{int(time.time())}"))
-    output_dir = output_root / adapter_name
+    local_checkpoint_key = safe_name(str(payload.get("local_checkpoint_key") or payload.get("adapter_name") or f"adapter-{int(time.time())}"))
+    adapter_name = safe_name(str(payload.get("adapter_name") or local_checkpoint_key))
+    output_dir = output_root / local_checkpoint_key
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoints_dir = output_dir / "checkpoints"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,7 @@ def train_lora_job(
     checkpoint_url = payload.get("checkpoint_url")
     checkpoint_input_url = payload.get("checkpoint_input_url") or checkpoint_url
     checkpoint_output_url = payload.get("checkpoint_output_url") or checkpoint_url
+    local_checkpoint = bool(payload.get("local_checkpoint", True))
     checkpoint_save_steps = clamp_int(
         payload.get("checkpoint_save_steps", max(1, min(25, max_steps // 5 or 1))),
         1,
@@ -100,23 +102,30 @@ def train_lora_job(
 
     tokenized = dataset.map(tokenize, batched=True, remove_columns=["text"])
     collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    resume_checkpoint = restore_checkpoint_zip(str(checkpoint_input_url), checkpoints_dir) if checkpoint_input_url else None
+    remote_resume_checkpoint = restore_checkpoint_zip(str(checkpoint_input_url), checkpoints_dir) if checkpoint_input_url else None
+    local_resume_checkpoint = find_latest_checkpoint(checkpoints_dir) if local_checkpoint else None
+    resume_checkpoint = remote_resume_checkpoint or local_resume_checkpoint
 
     callbacks = []
 
-    if checkpoint_output_url and on_checkpoint:
+    if on_checkpoint:
         class UploadCheckpointCallback(TrainerCallback):
             def on_save(self, args, state, control, **kwargs):
                 checkpoint_path = Path(args.output_dir) / f"checkpoint-{state.global_step}"
                 if not checkpoint_path.exists():
                     return control
-                zip_path = shutil.make_archive(str(checkpoint_path), "zip", checkpoint_path)
+                zip_path = None
+                if checkpoint_output_url:
+                    zip_path = shutil.make_archive(str(checkpoint_path), "zip", checkpoint_path)
                 try:
                     on_checkpoint(
                         {
                             "checkpoint_zip_path": zip_path,
+                            "local_checkpoint_path": str(checkpoint_path),
                             "checkpoint_step": int(state.global_step),
-                            "checkpoint_url": str(checkpoint_input_url or checkpoint_output_url),
+                            "checkpoint_url": str(checkpoint_input_url or checkpoint_output_url)
+                            if (checkpoint_input_url or checkpoint_output_url)
+                            else None,
                         }
                     )
                 except Exception:
@@ -132,7 +141,7 @@ def train_lora_job(
         max_steps=max_steps,
         learning_rate=learning_rate,
         logging_steps=max(1, min(10, max_steps)),
-        save_strategy="steps" if checkpoint_output_url else "no",
+        save_strategy="steps" if (local_checkpoint or checkpoint_output_url) else "no",
         save_steps=checkpoint_save_steps,
         save_total_limit=2,
         report_to=[],
@@ -169,10 +178,27 @@ def train_lora_job(
         "target_modules": target_modules,
         "checkpoint_step": trainer.state.global_step,
         "resumed_from_checkpoint": bool(resume_checkpoint),
+        "resume_source": "remote" if remote_resume_checkpoint else "local" if local_resume_checkpoint else None,
+        "local_checkpoint": local_checkpoint,
         "train_loss": getattr(train_result, "training_loss", None),
         "adapter_path": str(adapter_dir),
         "adapter_zip_path": zip_path,
     }
+
+
+def find_latest_checkpoint(checkpoints_dir: Path) -> Path | None:
+    candidates = []
+    for path in checkpoints_dir.glob("checkpoint-*"):
+        if not path.is_dir():
+            continue
+        try:
+            step = int(path.name.rsplit("-", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        candidates.append((step, path))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
 
 
 def restore_checkpoint_zip(url: str, checkpoints_dir: Path) -> Path | None:

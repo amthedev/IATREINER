@@ -32,6 +32,8 @@ Com os valores padrao, se um computador parar de responder, o job volta para a f
 
 Para nao perder progresso em jobs LoRA longos, configure no job uma URL de checkpoint em storage externo (`checkpoint_url`) ou URLs separadas de leitura/escrita (`checkpoint_input_url` e `checkpoint_output_url`). O SQLite da Square guarda apenas metadados do ultimo checkpoint; o arquivo `.zip` fica no storage externo.
 
+Os workers tambem mantem checkpoint local no proprio computador para retomar o mesmo job caso ele volte para aquele mesmo PC. Isso nao substitui storage externo para failover entre PCs diferentes.
+
 ## Deploy via GitHub
 
 1. Abra a Square Cloud.

@@ -382,6 +382,8 @@ Para nao perder progresso quando um PC cai, informe `checkpoint_url` ou o par `c
 
 Nao coloque o arquivo do checkpoint dentro do SQLite. O banco guarda so metadados; o arquivo grande deve ficar em S3, R2, Backblaze ou storage equivalente.
 
+O app tambem salva checkpoint local automaticamente no computador que esta executando o job, dentro de `~/.consentcompute/lora_runs`. Isso economiza download/upload quando o mesmo PC retoma o mesmo job. Para trocar de um PC para outro sem perder progresso, ainda e necessario usar `checkpoint_url`, porque outro computador nao consegue acessar arquivos locais do PC que desligou.
+
 Para modelos que nao sejam GPT-2/DistilGPT2, ajuste `target_modules` via CLI usando `--payload-json`. Modelos LLaMA/Mistral normalmente usam algo como `["q_proj", "v_proj"]`.
 
 ## Storage externo
