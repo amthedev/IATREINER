@@ -10,3 +10,4 @@ dist/
 build/
 *.spec
 installer/Output/
+*.dmg

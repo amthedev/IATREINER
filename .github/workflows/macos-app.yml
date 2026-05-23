@@ -1,0 +1,39 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "client/**"
+      - "scripts/build_macos.sh"
+      - ".github/workflows/macos-app.yml"
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build app and DMG
+        run: bash scripts/build_macos.sh
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: IATREINER-macOS-app
+          path: dist/IATREINER.app
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: IATREINER-macOS-dmg
+          path: dist/IATREINER-macOS.dmg

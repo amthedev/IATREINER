@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import plistlib
 import platform
 import queue
 import random
@@ -137,7 +138,7 @@ class VolunteerApp(tk.Tk):
         startup_box.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         ttk.Checkbutton(
             startup_box,
-            text="Iniciar este app automaticamente com o Windows",
+            text="Iniciar este app automaticamente com o sistema",
             variable=self.autostart_var,
             command=self.on_autostart_changed,
         ).pack(anchor="w")
@@ -212,7 +213,7 @@ class VolunteerApp(tk.Tk):
 
     def on_autostart_changed(self) -> None:
         enabled = self.autostart_var.get()
-        ok, message = set_windows_autostart(enabled)
+        ok, message = set_autostart(enabled)
         if not ok:
             self.autostart_var.set(False)
             messagebox.showwarning("Inicializacao automatica", message)
@@ -369,9 +370,22 @@ class VolunteerApp(tk.Tk):
         )
 
 
+def set_autostart(enabled: bool) -> tuple[bool, str]:
+    system_name = platform.system()
+    if system_name == "Windows":
+        return set_windows_autostart(enabled)
+    if system_name == "Darwin":
+        return set_macos_autostart(enabled)
+    return False, "Inicializacao automatica so foi implementada para Windows e macOS neste MVP."
+
+
+def launch_args() -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--minimized", "--auto-connect"]
+    return [sys.executable, str(Path(__file__).resolve()), "--minimized", "--auto-connect"]
+
+
 def set_windows_autostart(enabled: bool) -> tuple[bool, str]:
-    if platform.system() != "Windows":
-        return False, "Inicializacao automatica so foi implementada para Windows neste MVP."
     startup_dir = Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
     startup_path = startup_dir / "IATREINER.cmd"
     legacy_startup_path = startup_dir / "ConsentCompute.cmd"
@@ -383,13 +397,35 @@ def set_windows_autostart(enabled: bool) -> tuple[bool, str]:
         return True, "Inicializacao automatica desativada."
 
     startup_dir.mkdir(parents=True, exist_ok=True)
-    if getattr(sys, "frozen", False):
-        args = [sys.executable, "--minimized", "--auto-connect"]
-    else:
-        args = [sys.executable, str(Path(__file__).resolve()), "--minimized", "--auto-connect"]
-    command = subprocess.list2cmdline(args)
+    command = subprocess.list2cmdline(launch_args())
     startup_path.write_text(f"@echo off\nstart \"\" /min {command}\n", encoding="utf-8")
     return True, "Inicializacao automatica ativada para o proximo login do Windows."
+
+
+def set_macos_autostart(enabled: bool) -> tuple[bool, str]:
+    launch_agents_dir = Path.home() / "Library/LaunchAgents"
+    plist_path = launch_agents_dir / "com.amthedev.iatreiner.plist"
+    if not enabled:
+        if plist_path.exists():
+            subprocess.run(["launchctl", "unload", str(plist_path)], check=False, capture_output=True)
+            plist_path.unlink()
+        return True, "Inicializacao automatica desativada no macOS."
+
+    launch_agents_dir.mkdir(parents=True, exist_ok=True)
+    plist_data = {
+        "Label": "com.amthedev.iatreiner",
+        "ProgramArguments": launch_args(),
+        "RunAtLoad": True,
+        "KeepAlive": False,
+        "StandardOutPath": str(APP_DIR / "launchd.out.log"),
+        "StandardErrorPath": str(APP_DIR / "launchd.err.log"),
+    }
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    with plist_path.open("wb") as handle:
+        plistlib.dump(plist_data, handle)
+    subprocess.run(["launchctl", "unload", str(plist_path)], check=False, capture_output=True)
+    subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
+    return True, "Inicializacao automatica ativada para o proximo login do macOS."
 
 
 def throttle(cpu_limit_percent: int) -> None:

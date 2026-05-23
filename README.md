@@ -1,4 +1,4 @@
-# ConsentCompute
+# IATREINER
 
 MVP seguro de computacao voluntaria em Python.
 
@@ -18,7 +18,7 @@ Este projeto cria uma rede simples em que uma pessoa roda um app desktop visivel
 - Nao abre controle remoto da tela, teclado ou mouse.
 - Nao executa comandos de terminal enviados pelo admin.
 - Nao roda escondido em segundo plano.
-- Nao instala persistencia automatica ao iniciar o Windows.
+- Nao instala persistencia automatica ao iniciar o Windows ou macOS sem a pessoa ativar no app.
 
 Essas restricoes sao intencionais. Um sistema com controle remoto total ou execucao arbitraria de comandos seria perigoso mesmo quando a ideia inicial envolve consentimento.
 
@@ -29,6 +29,17 @@ server/       API FastAPI para hospedar na Square Cloud
 client/       App desktop do voluntario
 admin/        CLI Python para voce criar jobs e ver resultados
 ```
+
+## Compatibilidade
+
+- Windows: pode rodar como worker para processar/treinar e tambem pode hospedar o servidor local.
+- macOS/MacBook: pode rodar como worker para processar/treinar e tambem pode hospedar o servidor local.
+- Square Cloud: recomendado para hospedar o servidor central 24/7.
+
+Para treino pesado com GPU:
+
+- Windows com NVIDIA/CUDA e PyTorch pode ser usado nos jobs de GPU depois de marcar permissao no app.
+- MacBook com Apple Silicon pode ser usado para CPU e tarefas leves; suporte real a PyTorch/MPS para treino LoRA ainda precisa de um executor especifico.
 
 ## Rodando localmente
 
@@ -99,7 +110,7 @@ squarecloud upload
 
 Veja o passo a passo em `DEPLOY_SQUARE.md`.
 
-## Instalador Windows sem Python
+## App Windows sem Python
 
 Para a pessoa voluntaria, o ideal e baixar um arquivo unico:
 
@@ -119,6 +130,26 @@ Como gerar pelo GitHub:
 
 Ao dar dois cliques no instalador, ele instala o app no usuario atual do Windows e cria atalho no menu iniciar. O app nao liga inicializacao automatica sozinho; isso continua sendo uma opcao visivel dentro do app.
 
+## App macOS sem Python
+
+Para MacBook, baixe:
+
+```text
+IATREINER-macOS.dmg
+```
+
+Esse arquivo ja inclui o Python embutido no app. A pessoa nao precisa instalar Python, Git ou dependencias.
+
+Como gerar pelo GitHub:
+
+1. Abra o repositorio no GitHub.
+2. Entre em `Actions`.
+3. Rode o workflow `Build macOS app`.
+4. Baixe o artefato `IATREINER-macOS-dmg`.
+5. Envie o arquivo `IATREINER-macOS.dmg` para o voluntario.
+
+No primeiro uso, por nao estar assinado com certificado Apple, o macOS pode bloquear a abertura. A pessoa pode liberar em `Ajustes do Sistema > Privacidade e Seguranca`, ou clicar com o botao direito no app e escolher `Abrir`.
+
 ## Criando executavel Windows localmente
 
 No computador onde voce quer gerar o instalador/executavel:
@@ -131,28 +162,53 @@ py -m venv .venv
 
 O executavel portatil fica em `dist\IATREINER.exe`. Se o Inno Setup estiver instalado, o instalador fica em `installer\Output\IATREINER-Setup.exe`.
 
-## Rodando em segundo plano no Windows
+## Criando app macOS localmente
+
+No MacBook onde voce quer gerar o app:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+bash scripts/build_macos.sh
+```
+
+O app fica em `dist/IATREINER.app` e o DMG fica em `dist/IATREINER-macOS.dmg`.
+
+## Rodando em segundo plano no Windows e macOS
 
 O app tem duas opcoes visiveis para o voluntario:
 
-- `Iniciar este app automaticamente com o Windows`
+- `Iniciar este app automaticamente com o sistema`
 - `Comecar colaboracao automaticamente ao abrir o app`
 
-Quando a primeira opcao e marcada no Windows, o app cria este arquivo:
+No Windows, quando a primeira opcao e marcada, o app cria este arquivo:
 
 ```text
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\IATREINER.cmd
 ```
 
-Esse arquivo abre o app minimizado no proximo login do Windows. A colaboracao so comeca automaticamente se a segunda opcao tambem estiver marcada e se o consentimento estiver salvo no app.
+No macOS, quando a primeira opcao e marcada, o app cria este arquivo:
 
-Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o Windows`, ou apagar o arquivo `IATREINER.cmd` da pasta Startup.
+```text
+~/Library/LaunchAgents/com.amthedev.iatreiner.plist
+```
+
+Esses arquivos abrem o app minimizado no proximo login. A colaboracao so comeca automaticamente se a segunda opcao tambem estiver marcada e se o consentimento estiver salvo no app.
+
+Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o sistema`.
 
 Tambem da para iniciar manualmente minimizado:
 
 ```powershell
 cd client
 py volunteer_app.py --minimized --auto-connect
+```
+
+No macOS:
+
+```bash
+cd client
+python3 volunteer_app.py --minimized --auto-connect
 ```
 
 ## Jobs disponiveis
