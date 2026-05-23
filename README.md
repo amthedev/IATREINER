@@ -90,7 +90,13 @@ Preencha:
 - Servidor: `https://ia-treiner.squareweb.app` ja vem preenchido.
 - Convite: ja vem preenchido.
 
-Marque o consentimento e clique em **Iniciar colaboracao**.
+Na primeira tela, o voluntario pode escolher:
+
+- **Aceitar termos e iniciar**: aceita as condicoes e comeca agora mantendo as opcoes padrao.
+- **Aceitar tudo e iniciar**: aceita as condicoes, usa CPU 100%, permite GPU/PyTorch, ativa inicializacao com o sistema e comeca automaticamente ao abrir.
+- **Personalizar opcoes**: deixa o voluntario marcar e desmarcar CPU, GPU, segundo plano e consentimento antes de iniciar.
+
+Tambem e possivel marcar o consentimento manualmente e clicar em **Iniciar colaboracao**.
 
 ### 3. Admin
 

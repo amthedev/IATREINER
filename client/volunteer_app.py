@@ -101,8 +101,8 @@ class VolunteerApp(tk.Tk):
     def __init__(self, start_minimized: bool = False, auto_connect: bool = False):
         super().__init__()
         self.title("IATREINER")
-        self.geometry("600x640")
-        self.minsize(560, 560)
+        self.geometry("640x760")
+        self.minsize(600, 660)
 
         self.running = False
         self.worker_thread: threading.Thread | None = None
@@ -138,18 +138,47 @@ class VolunteerApp(tk.Tk):
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 14)
         )
 
-        ttk.Label(root, text="Servidor").grid(row=1, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.server_var).grid(row=1, column=1, sticky="ew", pady=5)
+        quick_box = ttk.LabelFrame(root, text="Escolha rapida", padding=12)
+        quick_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        quick_box.columnconfigure(0, weight=1)
+        quick_box.columnconfigure(1, weight=1)
+        ttk.Label(
+            quick_box,
+            text=(
+                "Voce pode aceitar os termos e iniciar agora, aceitar tudo com opcoes automaticas, "
+                "ou personalizar antes de comecar. Aceitar tudo ativa CPU 100%, GPU/PyTorch, "
+                "inicializacao com o sistema e comeco automatico ao abrir."
+            ),
+            wraplength=560,
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Button(
+            quick_box,
+            text="Aceitar termos e iniciar",
+            command=self.accept_terms_and_start,
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(10, 0))
+        ttk.Button(
+            quick_box,
+            text="Aceitar tudo e iniciar",
+            command=self.accept_all_and_start,
+        ).grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=(10, 0))
+        ttk.Button(
+            quick_box,
+            text="Personalizar opcoes",
+            command=self.personalize_options,
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
-        ttk.Label(root, text="Nome visivel").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.name_var).grid(row=2, column=1, sticky="ew", pady=5)
+        ttk.Label(root, text="Servidor").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Entry(root, textvariable=self.server_var).grid(row=2, column=1, sticky="ew", pady=5)
 
-        ttk.Label(root, text="Convite").grid(row=3, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.invite_var, show="*").grid(row=3, column=1, sticky="ew", pady=5)
+        ttk.Label(root, text="Nome visivel").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Entry(root, textvariable=self.name_var).grid(row=3, column=1, sticky="ew", pady=5)
 
-        ttk.Label(root, text="Limite de CPU").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Label(root, text="Convite").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Entry(root, textvariable=self.invite_var, show="*").grid(row=4, column=1, sticky="ew", pady=5)
+
+        ttk.Label(root, text="Limite de CPU").grid(row=5, column=0, sticky="w", pady=5)
         cpu_frame = ttk.Frame(root)
-        cpu_frame.grid(row=4, column=1, sticky="ew", pady=5)
+        cpu_frame.grid(row=5, column=1, sticky="ew", pady=5)
         cpu_frame.columnconfigure(0, weight=1)
         ttk.Scale(cpu_frame, from_=10, to=100, variable=self.cpu_var, orient="horizontal").grid(
             row=0, column=0, sticky="ew"
@@ -160,13 +189,13 @@ class VolunteerApp(tk.Tk):
             root,
             text="Permitir jobs com GPU/PyTorch quando disponivel",
             variable=self.gpu_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Label(root, textvariable=self.hardware_var, wraplength=520).grid(
-            row=6, column=0, columnspan=2, sticky="w", pady=(6, 0)
+            row=7, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
 
         startup_box = ttk.LabelFrame(root, text="Segundo plano", padding=12)
-        startup_box.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        startup_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         ttk.Checkbutton(
             startup_box,
             text="Iniciar este app automaticamente com o sistema",
@@ -186,7 +215,7 @@ class VolunteerApp(tk.Tk):
         ).pack(anchor="w", pady=(8, 0))
 
         consent_box = ttk.LabelFrame(root, text="Consentimento", padding=12)
-        consent_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(14, 8))
+        consent_box.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(14, 8))
         ttk.Label(consent_box, text=CONSENT_TEXT, wraplength=490).pack(anchor="w")
         ttk.Checkbutton(
             consent_box,
@@ -195,7 +224,7 @@ class VolunteerApp(tk.Tk):
         ).pack(anchor="w", pady=(10, 0))
 
         actions = ttk.Frame(root)
-        actions.grid(row=9, column=0, columnspan=2, sticky="ew", pady=10)
+        actions.grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
         self.start_button = ttk.Button(actions, text="Iniciar colaboracao", command=self.start)
@@ -203,12 +232,33 @@ class VolunteerApp(tk.Tk):
         self.stop_button = ttk.Button(actions, text="Parar", command=self.stop, state="disabled")
         self.stop_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        ttk.Label(root, text="Status").grid(row=10, column=0, sticky="w", pady=(10, 5))
-        ttk.Label(root, textvariable=self.status_var).grid(row=10, column=1, sticky="w", pady=(10, 5))
+        ttk.Label(root, text="Status").grid(row=11, column=0, sticky="w", pady=(10, 5))
+        ttk.Label(root, textvariable=self.status_var).grid(row=11, column=1, sticky="w", pady=(10, 5))
 
         self.log = tk.Text(root, height=8, wrap="word", state="disabled")
-        self.log.grid(row=11, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
-        root.rowconfigure(11, weight=1)
+        self.log.grid(row=12, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        root.rowconfigure(12, weight=1)
+
+    def accept_terms_and_start(self) -> None:
+        self.consent_var.set(True)
+        self.save_config()
+        self.start()
+
+    def accept_all_and_start(self) -> None:
+        self.consent_var.set(True)
+        self.cpu_var.set(100)
+        self.gpu_var.set(True)
+        self.auto_connect_var.set(True)
+        if not self.autostart_var.get():
+            self.autostart_var.set(True)
+            self.on_autostart_changed()
+        else:
+            self.save_config()
+        self.start()
+
+    def personalize_options(self) -> None:
+        self.messages.put("Personalize CPU, GPU, segundo plano e consentimento antes de iniciar.")
+        self.status_var.set("Personalizando")
 
     def start(self) -> None:
         if self.running:
