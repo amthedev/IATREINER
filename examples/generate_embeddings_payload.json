@@ -1,0 +1,7 @@
+{
+  "texts": [
+    "primeiro texto para gerar embedding",
+    "segundo texto do lote"
+  ],
+  "dimensions": 64
+}
