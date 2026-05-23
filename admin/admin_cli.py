@@ -60,6 +60,8 @@ def load_payload(args: argparse.Namespace) -> dict:
         payload["output_url"] = args.output_url
     if args.model_url:
         payload["model_url"] = args.model_url
+    if args.model_id:
+        payload["model_id"] = args.model_id
     if args.base_model_url:
         payload["base_model_url"] = args.base_model_url
     if args.dataset_url:
@@ -76,6 +78,12 @@ def load_payload(args: argparse.Namespace) -> dict:
         payload["epochs"] = args.epochs
     if args.learning_rate is not None:
         payload["learning_rate"] = args.learning_rate
+    if args.max_length is not None:
+        payload["max_length"] = args.max_length
+    if args.batch_size is not None:
+        payload["batch_size"] = args.batch_size
+    if args.gradient_accumulation_steps is not None:
+        payload["gradient_accumulation_steps"] = args.gradient_accumulation_steps
     if args.max_steps is not None:
         payload["max_steps"] = args.max_steps
     if args.rank is not None:
@@ -173,6 +181,7 @@ def main() -> None:
     submit.add_argument("--input-url", default=None, help="URL assinada para dataset ou textos")
     submit.add_argument("--output-url", default=None, help="URL assinada para enviar resultado por PUT")
     submit.add_argument("--model-url", default=None, help="URL assinada para modelo de avaliacao")
+    submit.add_argument("--model-id", default=None, help="Modelo Hugging Face para LoRA, ex: distilgpt2")
     submit.add_argument("--base-model-url", default=None, help="URL assinada do modelo base para LoRA")
     submit.add_argument("--dataset-url", default=None, help="URL assinada do dataset para LoRA")
     submit.add_argument("--seconds", type=int, default=None)
@@ -181,6 +190,9 @@ def main() -> None:
     submit.add_argument("--dimensions", type=int, default=None)
     submit.add_argument("--epochs", type=int, default=None)
     submit.add_argument("--learning-rate", type=float, default=None)
+    submit.add_argument("--max-length", type=int, default=None)
+    submit.add_argument("--batch-size", type=int, default=None)
+    submit.add_argument("--gradient-accumulation-steps", type=int, default=None)
     submit.add_argument("--max-steps", type=int, default=None)
     submit.add_argument("--rank", type=int, default=None)
     submit.add_argument("--adapter-name", default=None)

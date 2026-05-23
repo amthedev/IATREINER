@@ -26,6 +26,11 @@ class AdminGui(tk.Tk):
         self.size_var = tk.IntVar(value=90)
         self.iterations_var = tk.IntVar(value=2)
         self.target_worker_var = tk.StringVar(value="")
+        self.model_id_var = tk.StringVar(value="distilgpt2")
+        self.dataset_url_var = tk.StringVar(value="")
+        self.output_url_var = tk.StringVar(value="")
+        self.max_steps_var = tk.IntVar(value=20)
+        self.rank_var = tk.IntVar(value=8)
 
         self.build_ui()
         self.after(200, self.drain_messages)
@@ -56,7 +61,7 @@ class AdminGui(tk.Tk):
         job_select = ttk.Combobox(
             actions,
             textvariable=self.job_type_var,
-            values=("hash_benchmark", "matrix_benchmark", "sleep"),
+            values=("hash_benchmark", "matrix_benchmark", "sleep", "train_lora"),
             state="readonly",
             width=18,
         )
@@ -78,6 +83,26 @@ class AdminGui(tk.Tk):
         ttk.Label(actions, text="Worker alvo opcional").grid(row=1, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(actions, textvariable=self.target_worker_var).grid(
             row=1, column=1, columnspan=8, sticky="ew", padx=(6, 0), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Modelo LoRA").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(actions, textvariable=self.model_id_var, width=22).grid(
+            row=2, column=1, sticky="ew", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Dataset URL").grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(actions, textvariable=self.dataset_url_var).grid(
+            row=2, column=3, columnspan=3, sticky="ew", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Output URL").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(actions, textvariable=self.output_url_var).grid(
+            row=3, column=1, columnspan=5, sticky="ew", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Steps").grid(row=2, column=6, sticky="w", pady=(8, 0))
+        ttk.Spinbox(actions, from_=1, to=5000, textvariable=self.max_steps_var, width=7).grid(
+            row=2, column=7, padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Rank").grid(row=3, column=6, sticky="w", pady=(8, 0))
+        ttk.Spinbox(actions, from_=1, to=128, textvariable=self.rank_var, width=7).grid(
+            row=3, column=7, padx=(6, 12), pady=(8, 0)
         )
 
         panes = ttk.PanedWindow(root, orient="horizontal")
@@ -152,12 +177,26 @@ class AdminGui(tk.Tk):
 
     def submit_job(self) -> None:
         job_type = self.job_type_var.get()
-        payload: dict[str, int] = {}
+        payload: dict = {}
         if job_type in {"hash_benchmark", "sleep"}:
             payload["seconds"] = int(self.seconds_var.get())
         elif job_type == "matrix_benchmark":
             payload["size"] = int(self.size_var.get())
             payload["iterations"] = int(self.iterations_var.get())
+        elif job_type == "train_lora":
+            payload = {
+                "model_id": self.model_id_var.get().strip() or "distilgpt2",
+                "dataset_url": self.dataset_url_var.get().strip(),
+                "max_steps": int(self.max_steps_var.get()),
+                "rank": int(self.rank_var.get()),
+                "target_modules": ["c_attn"],
+                "require_gpu": True,
+            }
+            if self.output_url_var.get().strip():
+                payload["output_url"] = self.output_url_var.get().strip()
+            if not payload["dataset_url"]:
+                messagebox.showwarning("IATREINER Admin", "Informe uma Dataset URL para train_lora.")
+                return
 
         target = self.target_worker_var.get().strip() or None
         body = {"job_type": job_type, "payload": payload, "target_worker_id": target}

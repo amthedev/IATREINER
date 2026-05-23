@@ -325,22 +325,52 @@ Tambem aceita `model_url`, `input_url` e `output_url`.
 
 ### `train_lora`
 
-Job reservado para workers com GPU/PyTorch autorizado pelo voluntario. O cliente detecta PyTorch e CUDA; se nao estiver disponivel, o job falha com mensagem clara.
+Job real de LoRA para modelos causais do Hugging Face, executado somente em workers que instalaram as dependencias de IA pesada e autorizaram GPU/PyTorch no app.
+
+No worker pesado, instale dependencias extras:
+
+```bash
+cd client
+python -m pip install -r requirements-ai.txt
+```
+
+No Windows com NVIDIA, instale a versao correta do PyTorch/CUDA seguindo a pagina oficial do PyTorch antes de rodar `requirements-ai.txt`.
 
 Payload:
 
 ```json
 {
-  "base_model_url": "https://storage.example.com/modelo-base?assinatura=...",
-  "dataset_url": "https://storage.example.com/dataset?assinatura=...",
-  "output_url": "https://storage.example.com/adapter?assinatura=...",
+  "model_id": "distilgpt2",
+  "dataset_url": "https://storage.example.com/dataset.json?assinatura=...",
+  "output_url": "https://storage.example.com/adapter.zip?assinatura=...",
   "adapter_name": "meu-adapter",
   "max_steps": 100,
-  "rank": 8
+  "rank": 8,
+  "target_modules": ["c_attn"]
 }
 ```
 
-Este MVP ainda nao inclui o loop real de LoRA para um modelo especifico. Ele deixa o contrato pronto para plugar um executor fechado de PyTorch depois.
+O `dataset_url` deve retornar JSON em um destes formatos:
+
+```json
+["texto de treino 1", "texto de treino 2"]
+```
+
+ou:
+
+```json
+{ "texts": ["texto de treino 1", "texto de treino 2"] }
+```
+
+ou:
+
+```json
+{ "examples": [{ "text": "texto de treino 1" }, { "text": "texto de treino 2" }] }
+```
+
+Se `output_url` for informado, o worker envia um `.zip` com o adapter LoRA por `PUT`. Se nao for informado, o adapter fica salvo localmente no worker em `~/.consentcompute/lora_runs/`.
+
+Para modelos que nao sejam GPT-2/DistilGPT2, ajuste `target_modules` via CLI usando `--payload-json`. Modelos LLaMA/Mistral normalmente usam algo como `["q_proj", "v_proj"]`.
 
 ## Storage externo
 

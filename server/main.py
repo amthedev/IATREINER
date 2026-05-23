@@ -407,16 +407,33 @@ def sanitize_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         clean = sanitize_artifact_payload(
             payload,
             {
+                "model_id": "str",
                 "base_model_url": "url",
+                "input_url": "url",
                 "dataset_url": "url",
                 "output_url": "url",
+                "texts": "list",
                 "adapter_name": "str",
                 "max_steps": "int",
                 "rank": "int",
+                "batch_size": "int",
+                "gradient_accumulation_steps": "int",
+                "max_length": "int",
+                "learning_rate": "float",
+                "lora_dropout": "float",
+                "target_modules": "list",
                 "require_gpu": "bool",
                 "batch_id": "str",
             },
-            int_ranges={"max_steps": (1, 500), "rank": (1, 64)},
+            int_ranges={
+                "max_steps": (1, 5000),
+                "rank": (1, 128),
+                "batch_size": (1, 16),
+                "gradient_accumulation_steps": (1, 64),
+                "max_length": (32, 2048),
+            },
+            float_ranges={"learning_rate": (0.000001, 0.01), "lora_dropout": (0.0, 0.5)},
+            max_inline_items=500,
         )
         clean["require_gpu"] = True
         return clean

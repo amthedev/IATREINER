@@ -1,0 +1,11 @@
+# Optional heavy AI dependencies for real LoRA jobs.
+# Install this only on workers that should train AI models.
+#
+# Windows NVIDIA/CUDA users should install the PyTorch wheel that matches their
+# CUDA version from https://pytorch.org/get-started/locally/ before installing
+# this file, when needed.
+torch
+transformers
+peft
+accelerate
+datasets

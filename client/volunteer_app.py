@@ -66,6 +66,15 @@ class ApiClient:
         )
         self._open(req, expect_json=False)
 
+    def put_bytes(self, url: str, data: bytes, content_type: str = "application/zip") -> None:
+        req = request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": content_type, "User-Agent": USER_AGENT},
+            method="PUT",
+        )
+        self._open(req, expect_json=False)
+
     def get(self, path: str) -> dict:
         req = request.Request(
             f"{self.server_url}{path}",
@@ -684,32 +693,21 @@ def run_evaluate_model(payload: dict, client: ApiClient, is_running) -> dict:
 def run_train_lora(payload: dict, client: ApiClient, allow_gpu: bool, is_running) -> dict:
     if not allow_gpu:
         raise RuntimeError("voluntario nao autorizou jobs com GPU/PyTorch")
-    try:
-        import torch  # type: ignore
-    except Exception as exc:
-        raise RuntimeError("PyTorch nao esta instalado neste computador") from exc
-    if torch.cuda.is_available():
-        backend = "cuda"
-        device_name = torch.cuda.get_device_name(0)
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        backend = "mps"
-        device_name = "Apple Silicon MPS"
-    else:
-        raise RuntimeError("GPU CUDA ou Apple MPS nao disponivel para train_lora")
     if not is_running():
         return {"status": "cancelled_before_start"}
 
-    result = {
-        "job_type": "train_lora",
-        "status": "ready_for_pytorch_worker",
-        "backend": backend,
-        "device": device_name,
-        "adapter_name": payload.get("adapter_name", "adapter"),
-        "max_steps": int(payload.get("max_steps", 100)),
-        "rank": int(payload.get("rank", 8)),
-        "message": "Executor PyTorch detectado. Integre aqui o loop fechado de LoRA do seu modelo.",
-    }
-    uploaded = upload_if_requested(payload, client, result)
+    try:
+        from ai_lora import train_lora_job
+    except Exception as exc:
+        raise RuntimeError("Executor LoRA nao encontrado no worker") from exc
+
+    result = train_lora_job(payload, APP_DIR / "lora_runs", is_running)
+    output_url = payload.get("output_url")
+    uploaded = False
+    if output_url and result.get("adapter_zip_path"):
+        with Path(str(result["adapter_zip_path"])).open("rb") as handle:
+            client.put_bytes(str(output_url), handle.read(), "application/zip")
+        uploaded = True
     result["uploaded"] = uploaded
     return result
 
