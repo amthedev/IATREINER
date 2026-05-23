@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -90,9 +91,9 @@ def postgres_connection_url(database_url: str) -> str:
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     if ssl_cert_path:
         query.setdefault("sslmode", "verify-ca")
-        query.setdefault("sslcert", ssl_cert_path)
-        query.setdefault("sslkey", postgres_ssl_key_path() or ssl_cert_path)
-        query.setdefault("sslrootcert", postgres_ssl_root_cert_path() or ssl_cert_path)
+        query.setdefault("sslcert", secure_ssl_file(ssl_cert_path, "certificate.pem"))
+        query.setdefault("sslkey", secure_ssl_file(postgres_ssl_key_path() or ssl_cert_path, "private-key.key"))
+        query.setdefault("sslrootcert", secure_ssl_file(postgres_ssl_root_cert_path() or ssl_cert_path, "ca-certificate.crt"))
     else:
         query.setdefault("sslmode", "require")
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
@@ -118,6 +119,15 @@ def postgres_ssl_cert_path() -> str:
     cert_path.write_text(cert_text.rstrip() + "\n", encoding="utf-8")
     cert_path.chmod(0o600)
     return str(cert_path)
+
+
+def secure_ssl_file(source_path: str, filename: str) -> str:
+    source = Path(source_path)
+    target = Path("/tmp") / f"iatreiner-{filename}"
+    if source.resolve() != target.resolve():
+        shutil.copyfile(source, target)
+    target.chmod(0o600)
+    return str(target)
 
 
 def postgres_ssl_key_path() -> str:
