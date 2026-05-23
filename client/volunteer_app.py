@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import plistlib
 import platform
 import queue
@@ -94,6 +95,7 @@ class VolunteerApp(tk.Tk):
         self.auto_connect_var = tk.BooleanVar(value=False)
         self.consent_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Parado")
+        self.hardware_var = tk.StringVar(value=hardware_summary())
 
         self.load_config()
         self.build_ui()
@@ -135,9 +137,12 @@ class VolunteerApp(tk.Tk):
             text="Permitir jobs com GPU/PyTorch quando disponivel",
             variable=self.gpu_var,
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(root, textvariable=self.hardware_var, wraplength=520).grid(
+            row=6, column=0, columnspan=2, sticky="w", pady=(6, 0)
+        )
 
         startup_box = ttk.LabelFrame(root, text="Segundo plano", padding=12)
-        startup_box.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        startup_box.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         ttk.Checkbutton(
             startup_box,
             text="Iniciar este app automaticamente com o sistema",
@@ -157,7 +162,7 @@ class VolunteerApp(tk.Tk):
         ).pack(anchor="w", pady=(8, 0))
 
         consent_box = ttk.LabelFrame(root, text="Consentimento", padding=12)
-        consent_box.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 8))
+        consent_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(14, 8))
         ttk.Label(consent_box, text=CONSENT_TEXT, wraplength=490).pack(anchor="w")
         ttk.Checkbutton(
             consent_box,
@@ -166,7 +171,7 @@ class VolunteerApp(tk.Tk):
         ).pack(anchor="w", pady=(10, 0))
 
         actions = ttk.Frame(root)
-        actions.grid(row=8, column=0, columnspan=2, sticky="ew", pady=10)
+        actions.grid(row=9, column=0, columnspan=2, sticky="ew", pady=10)
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
         self.start_button = ttk.Button(actions, text="Iniciar colaboracao", command=self.start)
@@ -174,12 +179,12 @@ class VolunteerApp(tk.Tk):
         self.stop_button = ttk.Button(actions, text="Parar", command=self.stop, state="disabled")
         self.stop_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        ttk.Label(root, text="Status").grid(row=9, column=0, sticky="w", pady=(10, 5))
-        ttk.Label(root, textvariable=self.status_var).grid(row=9, column=1, sticky="w", pady=(10, 5))
+        ttk.Label(root, text="Status").grid(row=10, column=0, sticky="w", pady=(10, 5))
+        ttk.Label(root, textvariable=self.status_var).grid(row=10, column=1, sticky="w", pady=(10, 5))
 
         self.log = tk.Text(root, height=8, wrap="word", state="disabled")
-        self.log.grid(row=10, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
-        root.rowconfigure(10, weight=1)
+        self.log.grid(row=11, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        root.rowconfigure(11, weight=1)
 
     def start(self) -> None:
         if self.running:
@@ -253,10 +258,7 @@ class VolunteerApp(tk.Tk):
                 "invite_token": self.invite_var.get().strip(),
                 "consent_text_accepted": True,
                 "device_info": {
-                    "system": platform.system(),
-                    "release": platform.release(),
-                    "machine": platform.machine(),
-                    "python": platform.python_version(),
+                    **hardware_info(),
                     "allow_gpu": self.gpu_var.get(),
                 },
             },
@@ -436,6 +438,48 @@ def set_macos_autostart(enabled: bool) -> tuple[bool, str]:
     subprocess.run(["launchctl", "unload", str(plist_path)], check=False, capture_output=True)
     subprocess.run(["launchctl", "load", str(plist_path)], check=False, capture_output=True)
     return True, "Inicializacao automatica ativada para o proximo login do macOS."
+
+
+def hardware_info() -> dict:
+    cpu_count = os.cpu_count() or 1
+    info = {
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "architecture": platform.architecture()[0],
+        "python": platform.python_version(),
+        "cpu_count": cpu_count,
+        "gpu_backend": "none",
+        "torch_available": False,
+    }
+    try:
+        import torch  # type: ignore
+
+        info["torch_available"] = True
+        if torch.cuda.is_available():
+            info["gpu_backend"] = "cuda"
+            info["gpu_name"] = torch.cuda.get_device_name(0)
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            info["gpu_backend"] = "mps"
+            info["gpu_name"] = "Apple Silicon MPS"
+        else:
+            info["gpu_backend"] = "cpu"
+    except Exception:
+        pass
+    return info
+
+
+def hardware_summary() -> str:
+    info = hardware_info()
+    gpu = info.get("gpu_backend", "none")
+    gpu_name = info.get("gpu_name")
+    gpu_text = f"{gpu} ({gpu_name})" if gpu_name else gpu
+    return (
+        f"Hardware: {info['system']} {info['machine']} | "
+        f"CPU cores: {info['cpu_count']} | PyTorch/GPU: {gpu_text}"
+    )
 
 
 def throttle(cpu_limit_percent: int) -> None:
@@ -629,15 +673,22 @@ def run_train_lora(payload: dict, client: ApiClient, allow_gpu: bool, is_running
         import torch  # type: ignore
     except Exception as exc:
         raise RuntimeError("PyTorch nao esta instalado neste computador") from exc
-    if not torch.cuda.is_available():
-        raise RuntimeError("GPU CUDA nao disponivel para train_lora")
+    if torch.cuda.is_available():
+        backend = "cuda"
+        device_name = torch.cuda.get_device_name(0)
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        backend = "mps"
+        device_name = "Apple Silicon MPS"
+    else:
+        raise RuntimeError("GPU CUDA ou Apple MPS nao disponivel para train_lora")
     if not is_running():
         return {"status": "cancelled_before_start"}
 
     result = {
         "job_type": "train_lora",
         "status": "ready_for_pytorch_worker",
-        "device": torch.cuda.get_device_name(0),
+        "backend": backend,
+        "device": device_name,
         "adapter_name": payload.get("adapter_name", "adapter"),
         "max_steps": int(payload.get("max_steps", 100)),
         "rank": int(payload.get("rank", 8)),

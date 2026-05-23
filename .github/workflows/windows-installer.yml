@@ -8,6 +8,7 @@ on:
     paths:
       - "client/**"
       - "installer/**"
+      - "packaging/**"
       - "scripts/build_windows.ps1"
       - ".github/workflows/windows-installer.yml"
 

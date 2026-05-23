@@ -24,6 +24,7 @@ pyinstaller `
     --windowed `
     --clean `
     --name $AppName `
+    --version-file packaging\windows_version_info.txt `
     client\volunteer_app.py
 
 if (-not (Test-Path "dist\$AppName.exe")) {

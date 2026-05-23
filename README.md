@@ -39,7 +39,20 @@ admin/        CLI Python para voce criar jobs e ver resultados
 Para treino pesado com GPU:
 
 - Windows com NVIDIA/CUDA e PyTorch pode ser usado nos jobs de GPU depois de marcar permissao no app.
-- MacBook com Apple Silicon pode ser usado para CPU e tarefas leves; suporte real a PyTorch/MPS para treino LoRA ainda precisa de um executor especifico.
+- MacBook com Apple Silicon detecta PyTorch/MPS quando disponivel; treino LoRA real ainda precisa de um executor especifico.
+- Maquinas sem GPU continuam funcionando para CPU, embeddings, avaliacao e chunks pequenos.
+
+O app tambem envia informacoes basicas de hardware no cadastro do worker: sistema, arquitetura, quantidade de CPUs, versao do Python empacotado e backend PyTorch/GPU detectado.
+
+## Seguranca do sistema
+
+O app nao tenta desativar, contornar ou enganar Gatekeeper, SmartScreen, antivirus ou qualquer protecao do sistema. Para reduzir avisos de seguranca de forma correta:
+
+- Windows: assine `IATREINER.exe` e `IATREINER-Setup.exe` com certificado Authenticode.
+- macOS: assine com Developer ID, notarize o `.dmg` pela Apple e faca staple.
+- Consulte `SIGNING.md` para o passo a passo.
+
+Enquanto os builds nao forem assinados, Windows/macOS podem mostrar aviso mesmo o app sendo legitimo.
 
 ## Rodando localmente
 
