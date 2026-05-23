@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import secrets
@@ -21,6 +22,7 @@ ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/iatreiner.sqlite3"))
 DATABASE_SSL_CERT_PEM = os.getenv("DATABASE_SSL_CERT_PEM", "").strip()
+DATABASE_SSL_CERT_BASE64 = os.getenv("DATABASE_SSL_CERT_BASE64", "").strip()
 DATABASE_SSL_CERT_PATH = os.getenv("DATABASE_SSL_CERT_PATH", "").strip()
 DATABASE_SSL_KEY_PATH = os.getenv("DATABASE_SSL_KEY_PATH", "").strip()
 DATABASE_SSL_ROOT_CERT_PATH = os.getenv("DATABASE_SSL_ROOT_CERT_PATH", "").strip()
@@ -99,12 +101,41 @@ def postgres_connection_url(database_url: str) -> str:
 def postgres_ssl_cert_path() -> str:
     if DATABASE_SSL_CERT_PATH:
         return DATABASE_SSL_CERT_PATH
-    if not DATABASE_SSL_CERT_PEM:
+
+    for candidate in (
+        Path("/application/certificate.pem"),
+        Path("/application/server/certificate.pem"),
+        Path("certificate.pem"),
+        Path("server/certificate.pem"),
+    ):
+        if candidate.exists():
+            return str(candidate)
+
+    cert_text = postgres_ssl_cert_text()
+    if not cert_text:
         return ""
     cert_path = Path(os.getenv("DATABASE_SSL_CERT_FILE", "/tmp/iatreiner-postgres-certificate.pem"))
-    cert_path.write_text(DATABASE_SSL_CERT_PEM.replace("\\n", "\n") + "\n", encoding="utf-8")
+    cert_path.write_text(cert_text.rstrip() + "\n", encoding="utf-8")
     cert_path.chmod(0o600)
     return str(cert_path)
+
+
+def postgres_ssl_cert_text() -> str:
+    if DATABASE_SSL_CERT_BASE64:
+        try:
+            return base64.b64decode(clean_secret(DATABASE_SSL_CERT_BASE64)).decode("utf-8")
+        except Exception as exc:
+            raise RuntimeError("DATABASE_SSL_CERT_BASE64 invalido") from exc
+    if DATABASE_SSL_CERT_PEM:
+        return clean_secret(DATABASE_SSL_CERT_PEM).replace("\\n", "\n")
+    return ""
+
+
+def clean_secret(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1].strip()
+    return value
 
 
 def ensure_column(connection, table_name: str, column_name: str, definition: str) -> None:

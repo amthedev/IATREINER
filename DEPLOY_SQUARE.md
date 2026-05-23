@@ -24,6 +24,12 @@ A Square Cloud exige conexao criptografada com certificado para PostgreSQL. Baix
 DATABASE_SSL_CERT_PEM=conteudo_do_certificate.pem
 ```
 
+Se o painel nao aceitar conteudo com varias linhas, converta o `certificate.pem` para base64 e configure:
+
+```text
+DATABASE_SSL_CERT_BASE64=base64_do_certificate_pem
+```
+
 Ou, se os arquivos forem disponibilizados no ambiente:
 
 ```text
@@ -33,6 +39,8 @@ DATABASE_SSL_ROOT_CERT_PATH=/path/root.crt
 ```
 
 Se `DATABASE_SSL_KEY_PATH` e `DATABASE_SSL_ROOT_CERT_PATH` nao forem definidos, o app usa o mesmo `certificate.pem` para `sslcert`, `sslkey` e `sslrootcert`, que e o formato comum fornecido pela Square Cloud.
+
+O app tambem tenta encontrar automaticamente `certificate.pem` em `/application/certificate.pem`, `/application/server/certificate.pem`, `certificate.pem` ou `server/certificate.pem`.
 
 Nao coloque a URL real com senha nem certificados dentro do GitHub. Esses valores devem ficar apenas nas variaveis de ambiente/secrets da Square Cloud.
 
