@@ -102,6 +102,13 @@ python admin_cli.py jobs
 python admin_cli.py collect
 ```
 
+Para abrir a tela grafica local do admin:
+
+```bash
+cd admin
+python admin_gui.py
+```
+
 ## Deploy na Square Cloud
 
 A Square Cloud para Python usa `requirements.txt` para instalar dependencias e o campo `START` do `squarecloud.app` pode iniciar o servidor. Este projeto agora inclui esses dois arquivos na raiz do repositorio, pronto para importar pelo GitHub.
