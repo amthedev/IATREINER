@@ -82,21 +82,22 @@ python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token col
 
 ## Deploy na Square Cloud
 
-A Square Cloud para Python usa `requirements.txt` para instalar dependencias e o campo `START` do `squarecloud.app` pode iniciar o servidor. Este projeto ja inclui `server/squarecloud.app`.
+A Square Cloud para Python usa `requirements.txt` para instalar dependencias e o campo `START` do `squarecloud.app` pode iniciar o servidor. Este projeto agora inclui esses dois arquivos na raiz do repositorio, pronto para importar pelo GitHub.
 
 Passos resumidos:
 
-1. Entre em `server/`.
-2. Defina `ADMIN_TOKEN` e `VOLUNTEER_INVITE_TOKEN` nas variaveis de ambiente do app na Square Cloud.
-3. Envie os arquivos de `server/` por zip ou CLI.
+1. Importe o repositorio `amthedev/IATREINER` na Square Cloud.
+2. Use a raiz do repositorio como projeto.
+3. Defina `ADMIN_TOKEN`, `VOLUNTEER_INVITE_TOKEN` e `STATE_PATH` nas variaveis de ambiente.
 4. Use a URL publica do app no cliente e no admin.
 
 Com a CLI:
 
 ```bash
-cd server
 squarecloud upload
 ```
+
+Veja o passo a passo em `DEPLOY_SQUARE.md`.
 
 ## Criando executavel Windows
 
