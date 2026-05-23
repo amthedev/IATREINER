@@ -136,7 +136,7 @@ Para a pessoa voluntaria, o ideal e baixar um arquivo unico:
 IATREINER-Setup.exe
 ```
 
-Esse instalador ja inclui o Python embutido no app. A pessoa nao precisa instalar Python, Git ou dependencias.
+Esse instalador ja inclui o Python e as dependencias de IA pesada embutidas no app. A pessoa nao precisa instalar Python, Git ou dependencias.
 
 Como gerar pelo GitHub:
 
@@ -156,7 +156,7 @@ Para MacBook, baixe:
 IATREINER-macOS.dmg
 ```
 
-Esse arquivo ja inclui o Python embutido no app. A pessoa nao precisa instalar Python, Git ou dependencias.
+Esse arquivo ja inclui o Python e as dependencias de IA pesada embutidas no app. A pessoa nao precisa instalar Python, Git ou dependencias.
 
 Como gerar pelo GitHub:
 
@@ -327,7 +327,7 @@ Tambem aceita `model_url`, `input_url` e `output_url`.
 
 Job real de LoRA para modelos causais do Hugging Face, executado somente em workers que instalaram as dependencias de IA pesada e autorizaram GPU/PyTorch no app.
 
-No worker pesado, instale dependencias extras:
+Os instaladores gerados pelo GitHub ja incluem essas dependencias. Se voce estiver rodando pelo codigo-fonte em vez do instalador, instale dependencias extras:
 
 ```bash
 cd client

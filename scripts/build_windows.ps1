@@ -13,6 +13,9 @@ python -m pip install pyinstaller
 if (Test-Path "client\requirements.txt") {
     python -m pip install -r client\requirements.txt
 }
+if (Test-Path "client\requirements-ai.txt") {
+    python -m pip install -r client\requirements-ai.txt
+}
 
 Write-Host "Cleaning old build output..."
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
@@ -25,6 +28,11 @@ pyinstaller `
     --clean `
     --name $AppName `
     --version-file packaging\windows_version_info.txt `
+    --collect-all torch `
+    --collect-all transformers `
+    --collect-all peft `
+    --collect-all accelerate `
+    --collect-all datasets `
     client\volunteer_app.py
 
 if (-not (Test-Path "dist\$AppName.exe")) {

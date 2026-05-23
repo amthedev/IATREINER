@@ -12,6 +12,9 @@ python3 -m pip install pyinstaller
 if [ -f "client/requirements.txt" ]; then
   python3 -m pip install -r client/requirements.txt
 fi
+if [ -f "client/requirements-ai.txt" ]; then
+  python3 -m pip install -r client/requirements-ai.txt
+fi
 
 echo "Cleaning old build output..."
 rm -rf build dist "${APP_NAME}.spec"
@@ -22,6 +25,11 @@ pyinstaller \
   --clean \
   --name "${APP_NAME}" \
   --osx-bundle-identifier "com.amthedev.iatreiner" \
+  --collect-all torch \
+  --collect-all transformers \
+  --collect-all peft \
+  --collect-all accelerate \
+  --collect-all datasets \
   client/volunteer_app.py
 
 if [ ! -d "dist/${APP_NAME}.app" ]; then
