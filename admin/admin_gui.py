@@ -140,18 +140,20 @@ class AdminGui(tk.Tk):
         jobs_frame.columnconfigure(0, weight=1)
         self.jobs_tree = ttk.Treeview(
             jobs_frame,
-            columns=("type", "status", "worker", "created"),
+            columns=("type", "status", "attempts", "worker", "created"),
             show="tree headings",
             selectmode="browse",
         )
         self.jobs_tree.heading("#0", text="job_id")
         self.jobs_tree.heading("type", text="Tipo")
         self.jobs_tree.heading("status", text="Status")
+        self.jobs_tree.heading("attempts", text="Tentativas")
         self.jobs_tree.heading("worker", text="Worker")
         self.jobs_tree.heading("created", text="Criado")
         self.jobs_tree.column("#0", width=180)
         self.jobs_tree.column("type", width=140)
         self.jobs_tree.column("status", width=100)
+        self.jobs_tree.column("attempts", width=80, anchor="center")
         self.jobs_tree.column("worker", width=160)
         self.jobs_tree.column("created", width=120)
         self.jobs_tree.grid(row=0, column=0, sticky="nsew")
@@ -261,6 +263,7 @@ class AdminGui(tk.Tk):
                 values=(
                     job.get("job_type", ""),
                     job.get("status", ""),
+                    job.get("attempts", 0),
                     job.get("worker_id") or "-",
                     format_time(job.get("created_at")),
                 ),

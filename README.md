@@ -413,6 +413,18 @@ python admin_cli.py submit --job-type evaluate_model --payload-json "{\"model_ur
 
 No MVP, a agregacao faz media ponderada dos deltas por quantidade de exemplos. Para modelos grandes, o ideal e guardar os deltas no storage externo via `output_url` e fazer a agregacao em uma maquina sua ou em um job dedicado.
 
+## Tolerancia a falhas
+
+Se um computador desligar, perder internet ou fechar o app no meio de um job, o servidor nao deixa o trabalho preso para sempre.
+
+- Enquanto um job esta rodando, o app voluntario envia heartbeat periodico.
+- Se o heartbeat do worker ou do job expirar, o servidor devolve o job para `pending`.
+- Outro computador compativel pode pegar o mesmo job e tentar novamente.
+- Cada job tem contador de `attempts`; depois de 3 tentativas expiradas, o servidor marca como `failed`.
+- A tela grafica do admin mostra o numero de tentativas de cada job.
+
+Para jobs LoRA grandes, isso evita job preso quando um PC cai. O treino ainda reinicia aquele job do comeco em outro worker; retomada por checkpoint parcial deve ser adicionada depois usando storage externo para salvar checkpoints durante o treino.
+
 ## Proximos passos seguros
 
 - Criar assinatura digital para jobs.

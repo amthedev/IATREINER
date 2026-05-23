@@ -20,6 +20,16 @@ DATABASE_PATH=data/iatreiner.sqlite3
 
 Se `DATABASE_PATH` nao for configurado, esse caminho padrao sera usado automaticamente.
 
+Tambem existem ajustes opcionais para tolerancia a falhas:
+
+```text
+WORKER_OFFLINE_SECONDS=120
+JOB_LEASE_SECONDS=1800
+MAX_JOB_ATTEMPTS=3
+```
+
+Com os valores padrao, se um computador parar de responder, o job volta para a fila e pode ser executado por outro worker. Depois de 3 expiracoes, o job vira `failed`.
+
 ## Deploy via GitHub
 
 1. Abra a Square Cloud.

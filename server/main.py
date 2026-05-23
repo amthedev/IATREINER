@@ -18,6 +18,9 @@ DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
 VOLUNTEER_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
 ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/iatreiner.sqlite3"))
+WORKER_OFFLINE_SECONDS = int(os.getenv("WORKER_OFFLINE_SECONDS", "120"))
+JOB_LEASE_SECONDS = int(os.getenv("JOB_LEASE_SECONDS", "1800"))
+MAX_JOB_ATTEMPTS = int(os.getenv("MAX_JOB_ATTEMPTS", "3"))
 ALLOWED_JOB_TYPES = {
     "hash_benchmark",
     "matrix_benchmark",
@@ -45,6 +48,12 @@ def db_connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    if column_name not in columns:
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {definition}")
 
 
 def init_db() -> None:
@@ -78,10 +87,16 @@ def init_db() -> None:
                 finished_at REAL,
                 worker_id TEXT,
                 output TEXT,
-                error TEXT
+                error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_heartbeat_at REAL,
+                reset_reason TEXT
             )
             """
         )
+        ensure_column(connection, "jobs", "attempts", "attempts INTEGER NOT NULL DEFAULT 0")
+        ensure_column(connection, "jobs", "last_heartbeat_at", "last_heartbeat_at REAL")
+        ensure_column(connection, "jobs", "reset_reason", "reset_reason TEXT")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
         connection.commit()
 
@@ -175,6 +190,56 @@ def save_job_result(
     )
 
 
+def requeue_stale_jobs(connection: sqlite3.Connection) -> int:
+    current_time = now()
+    stale_rows = connection.execute(
+        """
+        SELECT j.*, w.last_seen_at AS worker_last_seen_at
+        FROM jobs j
+        LEFT JOIN workers w ON w.worker_id = j.worker_id
+        WHERE j.status = 'running'
+          AND (
+            j.worker_id IS NULL
+            OR w.worker_id IS NULL
+            OR COALESCE(w.last_seen_at, 0) < ?
+            OR COALESCE(j.last_heartbeat_at, j.started_at, 0) < ?
+          )
+        """,
+        (current_time - WORKER_OFFLINE_SECONDS, current_time - JOB_LEASE_SECONDS),
+    ).fetchall()
+
+    changed = 0
+    for row in stale_rows:
+        job = dict(row)
+        attempts = int(job.get("attempts") or 0)
+        reason = (
+            "worker offline ou heartbeat do job expirou; "
+            f"tentativa {attempts} de {MAX_JOB_ATTEMPTS}"
+        )
+        if attempts >= MAX_JOB_ATTEMPTS:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = ?, finished_at = ?, error = ?, reset_reason = ?
+                WHERE job_id = ?
+                """,
+                ("failed", current_time, reason, reason, job["job_id"]),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = ?, started_at = NULL, worker_id = NULL,
+                    last_heartbeat_at = NULL, finished_at = NULL,
+                    error = ?, reset_reason = ?
+                WHERE job_id = ?
+                """,
+                ("pending", reason, reason, job["job_id"]),
+            )
+        changed += 1
+    return changed
+
+
 @app.get("/")
 def root() -> dict[str, str]:
     return {"name": "IATREINER", "status": "online", "health": "/health"}
@@ -225,14 +290,24 @@ def register_worker(request: RegisterRequest) -> RegisterResponse:
 def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, str]:
     with db_lock, db_connect() as connection:
         get_worker(connection, worker_id, request.worker_token)
+        heartbeat_at = now()
         connection.execute(
             """
             UPDATE workers
             SET last_seen_at = ?, status = ?, cpu_limit_percent = ?, allow_gpu = ?
             WHERE worker_id = ?
             """,
-            (now(), request.status, request.cpu_limit_percent, int(request.allow_gpu), worker_id),
+            (heartbeat_at, request.status, request.cpu_limit_percent, int(request.allow_gpu), worker_id),
         )
+        if request.status == "working":
+            connection.execute(
+                """
+                UPDATE jobs
+                SET last_heartbeat_at = ?
+                WHERE worker_id = ? AND status = 'running'
+                """,
+                (heartbeat_at, worker_id),
+            )
         connection.commit()
     return {"status": "ok"}
 
@@ -241,9 +316,10 @@ def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, str]:
 def next_job(worker_id: str, worker_token: str) -> dict[str, Any]:
     with db_lock, db_connect() as connection:
         worker = get_worker(connection, worker_id, worker_token)
+        requeue_stale_jobs(connection)
         rows = connection.execute(
-            "SELECT * FROM jobs WHERE status = ? ORDER BY created_at ASC",
-            ("pending",),
+            "SELECT * FROM jobs WHERE status = ? AND attempts < ? ORDER BY created_at ASC",
+            ("pending", MAX_JOB_ATTEMPTS),
         ).fetchall()
         for row in rows:
             job = row_to_job(row)
@@ -257,13 +333,21 @@ def next_job(worker_id: str, worker_token: str) -> dict[str, Any]:
             ):
                 started_at = now()
                 connection.execute(
-                    "UPDATE jobs SET status = ?, worker_id = ?, started_at = ? WHERE job_id = ?",
-                    ("running", worker_id, started_at, job["job_id"]),
+                    """
+                    UPDATE jobs
+                    SET status = ?, worker_id = ?, started_at = ?, last_heartbeat_at = ?,
+                        attempts = COALESCE(attempts, 0) + 1, error = NULL
+                    WHERE job_id = ?
+                    """,
+                    ("running", worker_id, started_at, started_at, job["job_id"]),
                 )
                 connection.commit()
                 job["status"] = "running"
                 job["worker_id"] = worker_id
                 job["started_at"] = started_at
+                job["last_heartbeat_at"] = started_at
+                job["attempts"] = int(job.get("attempts") or 0) + 1
+                job["error"] = None
                 return {"job": public_job(job)}
     return {"job": None}
 
@@ -278,6 +362,8 @@ def submit_result(worker_id: str, job_id: str, request: JobResultRequest) -> dic
         job = row_to_job(row)
         if job.get("worker_id") != worker_id:
             raise HTTPException(status_code=403, detail="job pertence a outro worker")
+        if job.get("status") != "running":
+            raise HTTPException(status_code=409, detail="job nao esta mais em execucao")
         save_job_result(connection, job_id, request.status, request.output, request.error)
         connection.commit()
     return {"status": "ok"}
@@ -343,6 +429,7 @@ def submit_job(request: JobSubmitRequest) -> dict[str, Any]:
 @app.get("/api/admin/jobs", dependencies=[Depends(require_admin)])
 def admin_jobs() -> dict[str, list[dict[str, Any]]]:
     with db_lock, db_connect() as connection:
+        requeue_stale_jobs(connection)
         rows = connection.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
         jobs = [public_job(row_to_job(row)) for row in rows]
     return {"jobs": jobs}
@@ -496,6 +583,9 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "worker_id": job.get("worker_id"),
         "output": job.get("output"),
         "error": job.get("error"),
+        "attempts": job.get("attempts", 0),
+        "last_heartbeat_at": job.get("last_heartbeat_at"),
+        "reset_reason": job.get("reset_reason"),
     }
 
 

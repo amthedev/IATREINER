@@ -303,6 +303,21 @@ class VolunteerApp(tk.Tk):
             },
         )
 
+    def start_job_heartbeat(self, client: ApiClient) -> threading.Event:
+        stop_event = threading.Event()
+
+        def pulse() -> None:
+            while not stop_event.wait(20):
+                if not self.running:
+                    break
+                try:
+                    self.heartbeat(client, "working")
+                except Exception as exc:
+                    self.messages.put(f"Heartbeat do job falhou: {exc}")
+
+        threading.Thread(target=pulse, daemon=True).start()
+        return stop_event
+
     def handle_job(self, client: ApiClient, job: dict) -> None:
         job_id = job["job_id"]
         job_type = job["job_type"]
@@ -310,6 +325,7 @@ class VolunteerApp(tk.Tk):
         self.messages.put(f"Executando {job_type} ({job_id})")
         self.after(0, lambda: self.status_var.set("Trabalhando"))
         self.heartbeat(client, "working")
+        job_heartbeat_stop = self.start_job_heartbeat(client)
         try:
             if job_type == "hash_benchmark":
                 output = run_hash_benchmark(payload, self.cpu_var.get(), self.is_running)
@@ -334,6 +350,8 @@ class VolunteerApp(tk.Tk):
             output = {}
             status = "failed"
             error_message = str(exc)
+        finally:
+            job_heartbeat_stop.set()
 
         client.post(
             f"/api/workers/{self.worker_id}/jobs/{job_id}/result",
