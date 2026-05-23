@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -19,6 +20,10 @@ VOLUNTEER_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
 ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/iatreiner.sqlite3"))
+DATABASE_SSL_CERT_PEM = os.getenv("DATABASE_SSL_CERT_PEM", "").strip()
+DATABASE_SSL_CERT_PATH = os.getenv("DATABASE_SSL_CERT_PATH", "").strip()
+DATABASE_SSL_KEY_PATH = os.getenv("DATABASE_SSL_KEY_PATH", "").strip()
+DATABASE_SSL_ROOT_CERT_PATH = os.getenv("DATABASE_SSL_ROOT_CERT_PATH", "").strip()
 WORKER_OFFLINE_SECONDS = int(os.getenv("WORKER_OFFLINE_SECONDS", "120"))
 JOB_LEASE_SECONDS = int(os.getenv("JOB_LEASE_SECONDS", "1800"))
 MAX_JOB_ATTEMPTS = int(os.getenv("MAX_JOB_ATTEMPTS", "3"))
@@ -52,7 +57,7 @@ class PostgresConnection:
         except Exception as exc:
             raise RuntimeError("DATABASE_URL exige a dependencia psycopg[binary] instalada") from exc
 
-        self.connection = psycopg.connect(database_url, row_factory=dict_row)
+        self.connection = psycopg.connect(postgres_connection_url(database_url), row_factory=dict_row)
 
     def __enter__(self):
         self.connection.__enter__()
@@ -75,6 +80,31 @@ def db_connect():
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def postgres_connection_url(database_url: str) -> str:
+    ssl_cert_path = postgres_ssl_cert_path()
+    parts = urlsplit(database_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if ssl_cert_path:
+        query.setdefault("sslmode", "verify-ca")
+        query.setdefault("sslcert", ssl_cert_path)
+        query.setdefault("sslkey", DATABASE_SSL_KEY_PATH or ssl_cert_path)
+        query.setdefault("sslrootcert", DATABASE_SSL_ROOT_CERT_PATH or ssl_cert_path)
+    else:
+        query.setdefault("sslmode", "require")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def postgres_ssl_cert_path() -> str:
+    if DATABASE_SSL_CERT_PATH:
+        return DATABASE_SSL_CERT_PATH
+    if not DATABASE_SSL_CERT_PEM:
+        return ""
+    cert_path = Path(os.getenv("DATABASE_SSL_CERT_FILE", "/tmp/iatreiner-postgres-certificate.pem"))
+    cert_path.write_text(DATABASE_SSL_CERT_PEM.replace("\\n", "\n") + "\n", encoding="utf-8")
+    cert_path.chmod(0o600)
+    return str(cert_path)
 
 
 def ensure_column(connection, table_name: str, column_name: str, definition: str) -> None:

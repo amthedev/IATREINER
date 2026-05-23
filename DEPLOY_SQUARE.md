@@ -18,7 +18,23 @@ Para usar PostgreSQL na Square Cloud, configure `DATABASE_URL` no painel da apli
 DATABASE_URL=postgresql://usuario:senha@host:porta/database
 ```
 
-Nao coloque a URL real com senha dentro do GitHub. Ela deve ficar apenas nas variaveis de ambiente da Square Cloud.
+A Square Cloud exige conexao criptografada com certificado para PostgreSQL. Baixe o certificado do banco no painel da Square Cloud e configure uma destas opcoes:
+
+```text
+DATABASE_SSL_CERT_PEM=conteudo_do_certificate.pem
+```
+
+Ou, se os arquivos forem disponibilizados no ambiente:
+
+```text
+DATABASE_SSL_CERT_PATH=/path/certificate.pem
+DATABASE_SSL_KEY_PATH=/path/client-key.key
+DATABASE_SSL_ROOT_CERT_PATH=/path/root.crt
+```
+
+Se `DATABASE_SSL_KEY_PATH` e `DATABASE_SSL_ROOT_CERT_PATH` nao forem definidos, o app usa o mesmo `certificate.pem` para `sslcert`, `sslkey` e `sslrootcert`, que e o formato comum fornecido pela Square Cloud.
+
+Nao coloque a URL real com senha nem certificados dentro do GitHub. Esses valores devem ficar apenas nas variaveis de ambiente/secrets da Square Cloud.
 
 Se `DATABASE_URL` nao estiver definido, o servidor usa SQLite local. Opcionalmente, configure o caminho do SQLite:
 
