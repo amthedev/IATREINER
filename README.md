@@ -2,13 +2,13 @@
 
 MVP seguro de computacao voluntaria em Python.
 
-Este projeto cria uma rede simples em que uma pessoa roda um app desktop visivel no proprio computador e aceita colaborar com parte do processamento. Voce controla os trabalhos por um app admin em Python, e o servidor central pode ser hospedado na Square Cloud.
+Este projeto cria uma rede simples em que uma pessoa aceita colaborar pelo site e roda um app desktop visivel no proprio computador. Voce controla os trabalhos e os limites de CPU/GPU/memoria por um app admin em Python, e o servidor central pode ser hospedado na Square Cloud.
 
 ## O que este projeto faz
 
-- Registra computadores voluntarios com consentimento explicito.
+- Registra computadores voluntarios depois do aceite feito no site.
 - Mostra um app desktop com botao de iniciar/parar.
-- Permite definir limite de uso localmente no computador do voluntario.
+- Permite definir limite de CPU, GPU e memoria pelo admin.
 - Envia apenas jobs permitidos por uma lista segura.
 - Coleta resultados pelo servidor central.
 
@@ -38,7 +38,7 @@ admin/        CLI Python para voce criar jobs e ver resultados
 
 Para treino pesado com GPU:
 
-- Windows com NVIDIA/CUDA e PyTorch pode ser usado nos jobs de GPU depois de marcar permissao no app.
+- Windows com NVIDIA/CUDA e PyTorch pode ser usado nos jobs de GPU depois de liberar o worker no admin.
 - MacBook com Apple Silicon detecta PyTorch/MPS quando disponivel; treino LoRA real ainda precisa de um executor especifico.
 - Maquinas sem GPU continuam funcionando para CPU, embeddings, avaliacao e chunks pequenos.
 
@@ -85,24 +85,14 @@ cd client
 python volunteer_app.py
 ```
 
-Preencha:
-
-- Servidor: `https://ia-treiner.squareweb.app` ja vem preenchido.
-- Convite: ja vem preenchido.
-
-Na primeira tela, o voluntario pode escolher:
-
-- **Aceitar termos e iniciar**: aceita as condicoes e comeca agora mantendo as opcoes padrao.
-- **Aceitar tudo e iniciar**: aceita as condicoes, usa CPU 100%, permite GPU/PyTorch, ativa inicializacao com o sistema e comeca automaticamente ao abrir.
-- **Personalizar opcoes**: deixa o voluntario marcar e desmarcar CPU, GPU, segundo plano e consentimento antes de iniciar.
-
-Tambem e possivel marcar o consentimento manualmente e clicar em **Iniciar colaboracao**.
+O app abre direto, registra o computador e comeca a aguardar jobs. A tela do voluntario mostra apenas servidor, nome, hardware, status, log e botao de parar/reconectar. O aceite e as regras de uso devem acontecer antes, no site onde o app fica disponivel.
 
 ### 3. Admin
 
 ```bash
 cd admin
 python admin_cli.py workers
+python admin_cli.py set-worker worker_id --cpu-limit 60 --allow-gpu --memory-limit-mb 8192
 python admin_cli.py submit --job-type hash_benchmark --seconds 5
 python admin_cli.py jobs
 python admin_cli.py collect
@@ -126,6 +116,14 @@ Passos resumidos:
 3. Para producao, defina `DATABASE_URL` com a URL do PostgreSQL no painel da Square Cloud.
 4. Se `DATABASE_URL` nao existir, o servidor usa SQLite em `data/iatreiner.sqlite3`.
 5. Use a URL publica do app no cliente e no admin.
+
+Para verificar se o computador do colaborador parece estar usando VPN, proxy ou IP de datacenter, abra:
+
+```text
+https://ia-treiner.squareweb.app/vpn
+```
+
+Essa verificacao e uma estimativa por reputacao de IP. Ela tambem mostra um motivo quando detectar VPN/proxy suspeito.
 
 Com a CLI:
 
@@ -153,7 +151,7 @@ Como gerar pelo GitHub:
 4. Baixe o artefato `IATREINER-installer`.
 5. Envie o arquivo `IATREINER-Setup.exe` para o voluntario.
 
-Ao dar dois cliques no instalador, ele instala o app no usuario atual do Windows e cria atalho no menu iniciar. O app nao liga inicializacao automatica sozinho; isso continua sendo uma opcao visivel dentro do app.
+Ao dar dois cliques no instalador, ele instala o app no usuario atual do Windows e cria atalho no menu iniciar. Ao abrir, o app conecta automaticamente ao servidor configurado.
 
 ## App macOS sem Python
 
@@ -201,26 +199,19 @@ O app fica em `dist/IATREINER.app` e o DMG fica em `dist/IATREINER-macOS.dmg`.
 
 ## Rodando em segundo plano no Windows e macOS
 
-O app tem duas opcoes visiveis para o voluntario:
-
-- `Iniciar este app automaticamente com o sistema`
-- `Comecar colaboracao automaticamente ao abrir o app`
-
-No Windows, quando a primeira opcao e marcada, o app cria este arquivo:
+O app ainda suporta inicializacao automatica pelos argumentos `--minimized --auto-connect`. Quando esse modo e ativado pelo empacotamento ou por uma configuracao administrativa, no Windows o app cria este arquivo:
 
 ```text
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\IATREINER.cmd
 ```
 
-No macOS, quando a primeira opcao e marcada, o app cria este arquivo:
+No macOS, o app cria este arquivo:
 
 ```text
 ~/Library/LaunchAgents/com.amthedev.iatreiner.plist
 ```
 
-Esses arquivos abrem o app minimizado no proximo login. A colaboracao so comeca automaticamente se a segunda opcao tambem estiver marcada e se o consentimento estiver salvo no app.
-
-Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o sistema`.
+Esses arquivos abrem o app minimizado no proximo login. A colaboracao comeca automaticamente porque o aceite ja foi feito no site.
 
 Tambem da para iniciar manualmente minimizado:
 

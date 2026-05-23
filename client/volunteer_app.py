@@ -24,11 +24,6 @@ APP_DIR = Path.home() / ".consentcompute"
 CONFIG_PATH = APP_DIR / "client.json"
 DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
 DEFAULT_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
-CONSENT_TEXT = (
-    "Eu aceito colaborar voluntariamente com processamento limitado neste computador. "
-    "Entendo que posso parar a qualquer momento e que este app nao permite controle remoto "
-    "da tela, arquivos, teclado, mouse ou terminal."
-)
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 USER_AGENT = "IATREINER-Worker/0.1 (+https://github.com/amthedev/IATREINER)"
 
@@ -101,33 +96,32 @@ class VolunteerApp(tk.Tk):
     def __init__(self, start_minimized: bool = False, auto_connect: bool = False):
         super().__init__()
         self.title("IATREINER")
-        self.geometry("640x760")
-        self.minsize(600, 660)
+        self.geometry("620x440")
+        self.minsize(560, 380)
 
         self.running = False
         self.worker_thread: threading.Thread | None = None
         self.messages: queue.Queue[str] = queue.Queue()
         self.worker_id = ""
         self.worker_token = ""
+        self.cpu_limit_percent = 50
+        self.allow_gpu = False
+        self.memory_limit_mb = 0
 
         self.server_var = tk.StringVar(value=DEFAULT_SERVER_URL)
         self.name_var = tk.StringVar(value=platform.node() or "voluntario")
         self.invite_var = tk.StringVar(value=DEFAULT_INVITE_TOKEN)
-        self.cpu_var = tk.IntVar(value=50)
-        self.gpu_var = tk.BooleanVar(value=False)
         self.autostart_var = tk.BooleanVar(value=False)
-        self.auto_connect_var = tk.BooleanVar(value=False)
-        self.consent_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Parado")
         self.hardware_var = tk.StringVar(value=hardware_summary())
+        self.resource_var = tk.StringVar(value=self.resource_summary())
 
         self.load_config()
         self.build_ui()
         self.after(250, self.drain_messages)
         if start_minimized:
             self.after(100, self.iconify)
-        if auto_connect:
-            self.after(800, self.start_from_saved_consent)
+        self.after(800, self.start)
 
     def build_ui(self) -> None:
         root = ttk.Frame(self, padding=20)
@@ -138,133 +132,37 @@ class VolunteerApp(tk.Tk):
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 14)
         )
 
-        quick_box = ttk.LabelFrame(root, text="Escolha rapida", padding=12)
-        quick_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        quick_box.columnconfigure(0, weight=1)
-        quick_box.columnconfigure(1, weight=1)
-        ttk.Label(
-            quick_box,
-            text=(
-                "Voce pode aceitar os termos e iniciar agora, aceitar tudo com opcoes automaticas, "
-                "ou personalizar antes de comecar. Aceitar tudo ativa CPU 100%, GPU/PyTorch, "
-                "inicializacao com o sistema e comeco automatico ao abrir."
-            ),
-            wraplength=560,
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Button(
-            quick_box,
-            text="Aceitar termos e iniciar",
-            command=self.accept_terms_and_start,
-        ).grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(10, 0))
-        ttk.Button(
-            quick_box,
-            text="Aceitar tudo e iniciar",
-            command=self.accept_all_and_start,
-        ).grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=(10, 0))
-        ttk.Button(
-            quick_box,
-            text="Personalizar opcoes",
-            command=self.personalize_options,
-        ).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ttk.Label(root, text="Servidor").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Label(root, textvariable=self.server_var).grid(row=1, column=1, sticky="w", pady=5)
 
-        ttk.Label(root, text="Servidor").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.server_var).grid(row=2, column=1, sticky="ew", pady=5)
+        ttk.Label(root, text="Nome").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Label(root, textvariable=self.name_var).grid(row=2, column=1, sticky="w", pady=5)
 
-        ttk.Label(root, text="Nome visivel").grid(row=3, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.name_var).grid(row=3, column=1, sticky="ew", pady=5)
-
-        ttk.Label(root, text="Convite").grid(row=4, column=0, sticky="w", pady=5)
-        ttk.Entry(root, textvariable=self.invite_var, show="*").grid(row=4, column=1, sticky="ew", pady=5)
-
-        ttk.Label(root, text="Limite de CPU").grid(row=5, column=0, sticky="w", pady=5)
-        cpu_frame = ttk.Frame(root)
-        cpu_frame.grid(row=5, column=1, sticky="ew", pady=5)
-        cpu_frame.columnconfigure(0, weight=1)
-        ttk.Scale(cpu_frame, from_=10, to=100, variable=self.cpu_var, orient="horizontal").grid(
-            row=0, column=0, sticky="ew"
+        ttk.Label(root, textvariable=self.hardware_var, wraplength=540).grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(10, 0)
         )
-        ttk.Label(cpu_frame, textvariable=self.cpu_var, width=4).grid(row=0, column=1, padx=(8, 0))
-
-        ttk.Checkbutton(
-            root,
-            text="Permitir jobs com GPU/PyTorch quando disponivel",
-            variable=self.gpu_var,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Label(root, textvariable=self.hardware_var, wraplength=520).grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(6, 0)
+        ttk.Label(root, textvariable=self.resource_var, wraplength=540).grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(6, 0)
         )
-
-        startup_box = ttk.LabelFrame(root, text="Segundo plano", padding=12)
-        startup_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        ttk.Checkbutton(
-            startup_box,
-            text="Iniciar este app automaticamente com o sistema",
-            variable=self.autostart_var,
-            command=self.on_autostart_changed,
-        ).pack(anchor="w")
-        ttk.Checkbutton(
-            startup_box,
-            text="Comecar colaboracao automaticamente ao abrir o app",
-            variable=self.auto_connect_var,
-            command=self.save_config,
-        ).pack(anchor="w", pady=(6, 0))
-        ttk.Label(
-            startup_box,
-            text="O app nunca roda escondido: ele continua com janela, log e botao Parar.",
-            wraplength=520,
-        ).pack(anchor="w", pady=(8, 0))
-
-        consent_box = ttk.LabelFrame(root, text="Consentimento", padding=12)
-        consent_box.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(14, 8))
-        ttk.Label(consent_box, text=CONSENT_TEXT, wraplength=490).pack(anchor="w")
-        ttk.Checkbutton(
-            consent_box,
-            text="Li e aceito colaborar com essas condicoes",
-            variable=self.consent_var,
-        ).pack(anchor="w", pady=(10, 0))
 
         actions = ttk.Frame(root)
-        actions.grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
+        actions.grid(row=5, column=0, columnspan=2, sticky="ew", pady=12)
         actions.columnconfigure(0, weight=1)
         actions.columnconfigure(1, weight=1)
-        self.start_button = ttk.Button(actions, text="Iniciar colaboracao", command=self.start)
+        self.start_button = ttk.Button(actions, text="Reconectar", command=self.start)
         self.start_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.stop_button = ttk.Button(actions, text="Parar", command=self.stop, state="disabled")
         self.stop_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        ttk.Label(root, text="Status").grid(row=11, column=0, sticky="w", pady=(10, 5))
-        ttk.Label(root, textvariable=self.status_var).grid(row=11, column=1, sticky="w", pady=(10, 5))
+        ttk.Label(root, text="Status").grid(row=6, column=0, sticky="w", pady=(8, 5))
+        ttk.Label(root, textvariable=self.status_var).grid(row=6, column=1, sticky="w", pady=(8, 5))
 
         self.log = tk.Text(root, height=8, wrap="word", state="disabled")
-        self.log.grid(row=12, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
-        root.rowconfigure(12, weight=1)
-
-    def accept_terms_and_start(self) -> None:
-        self.consent_var.set(True)
-        self.save_config()
-        self.start()
-
-    def accept_all_and_start(self) -> None:
-        self.consent_var.set(True)
-        self.cpu_var.set(100)
-        self.gpu_var.set(True)
-        self.auto_connect_var.set(True)
-        if not self.autostart_var.get():
-            self.autostart_var.set(True)
-            self.on_autostart_changed()
-        else:
-            self.save_config()
-        self.start()
-
-    def personalize_options(self) -> None:
-        self.messages.put("Personalize CPU, GPU, segundo plano e consentimento antes de iniciar.")
-        self.status_var.set("Personalizando")
+        self.log.grid(row=7, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        root.rowconfigure(7, weight=1)
 
     def start(self) -> None:
         if self.running:
-            return
-        if not self.consent_var.get():
-            messagebox.showwarning("Consentimento necessario", "Marque o consentimento antes de iniciar.")
             return
         if not self.server_var.get().strip() or not self.invite_var.get().strip():
             messagebox.showwarning("Campos obrigatorios", "Informe servidor e convite.")
@@ -277,13 +175,6 @@ class VolunteerApp(tk.Tk):
         self.save_config()
         self.worker_thread = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker_thread.start()
-
-    def start_from_saved_consent(self) -> None:
-        if self.auto_connect_var.get() and self.consent_var.get():
-            self.messages.put("Inicio automatico autorizado pelo voluntario.")
-            self.start()
-        elif self.auto_connect_var.get():
-            self.messages.put("Inicio automatico bloqueado: consentimento nao esta marcado.")
 
     def stop(self) -> None:
         self.running = False
@@ -331,27 +222,39 @@ class VolunteerApp(tk.Tk):
                 "display_name": self.name_var.get().strip(),
                 "invite_token": self.invite_var.get().strip(),
                 "consent_text_accepted": True,
-                "device_info": {
-                    **hardware_info(),
-                    "allow_gpu": self.gpu_var.get(),
-                },
+                "device_info": hardware_info(),
             },
         )
         self.worker_id = response["worker_id"]
         self.worker_token = response["worker_token"]
+        self.apply_runtime_config(response.get("config", {}))
         self.messages.put(f"Registrado como {self.worker_id}")
         self.after(0, lambda: self.status_var.set("Online"))
 
     def heartbeat(self, client: ApiClient, status: str) -> None:
-        client.post(
+        response = client.post(
             f"/api/workers/{self.worker_id}/heartbeat",
             {
                 "worker_token": self.worker_token,
                 "status": status,
-                "cpu_limit_percent": int(self.cpu_var.get()),
-                "allow_gpu": bool(self.gpu_var.get()),
             },
         )
+        self.apply_runtime_config(response.get("config", {}))
+
+    def apply_runtime_config(self, config: dict) -> None:
+        old = (self.cpu_limit_percent, self.allow_gpu, self.memory_limit_mb)
+        self.cpu_limit_percent = int(config.get("cpu_limit_percent", self.cpu_limit_percent))
+        self.allow_gpu = bool(config.get("allow_gpu", self.allow_gpu))
+        self.memory_limit_mb = int(config.get("memory_limit_mb", self.memory_limit_mb) or 0)
+        self.after(0, lambda: self.resource_var.set(self.resource_summary()))
+        new = (self.cpu_limit_percent, self.allow_gpu, self.memory_limit_mb)
+        if old != new:
+            self.messages.put(f"Configuracao aplicada pelo admin: {self.resource_summary()}")
+
+    def resource_summary(self) -> str:
+        memory = f"{self.memory_limit_mb} MB" if self.memory_limit_mb else "sem limite definido"
+        gpu = "liberada" if self.allow_gpu else "bloqueada"
+        return f"Recursos definidos pelo admin: CPU {self.cpu_limit_percent}% | GPU {gpu} | Memoria {memory}"
 
     def start_job_heartbeat(self, client: ApiClient) -> threading.Event:
         stop_event = threading.Event()
@@ -371,29 +274,31 @@ class VolunteerApp(tk.Tk):
     def handle_job(self, client: ApiClient, job: dict) -> None:
         job_id = job["job_id"]
         job_type = job["job_type"]
-        payload = job.get("payload", {})
+        payload = dict(job.get("payload", {}))
+        if self.memory_limit_mb:
+            payload.setdefault("memory_limit_mb", self.memory_limit_mb)
         self.messages.put(f"Executando {job_type} ({job_id})")
         self.after(0, lambda: self.status_var.set("Trabalhando"))
         self.heartbeat(client, "working")
         job_heartbeat_stop = self.start_job_heartbeat(client)
         try:
             if job_type == "hash_benchmark":
-                output = run_hash_benchmark(payload, self.cpu_var.get(), self.is_running)
+                output = run_hash_benchmark(payload, self.cpu_limit_percent, self.is_running)
             elif job_type == "matrix_benchmark":
-                output = run_matrix_benchmark(payload, self.cpu_var.get(), self.is_running)
+                output = run_matrix_benchmark(payload, self.cpu_limit_percent, self.is_running)
             elif job_type == "sleep":
                 output = run_sleep(payload, self.is_running)
             elif job_type == "generate_embeddings":
                 output = run_generate_embeddings(payload, client, self.is_running)
             elif job_type == "fine_tune_chunk":
-                output = run_fine_tune_chunk(payload, client, self.cpu_var.get(), self.is_running)
+                output = run_fine_tune_chunk(payload, client, self.cpu_limit_percent, self.is_running)
             elif job_type == "evaluate_model":
                 output = run_evaluate_model(payload, client, self.is_running)
             elif job_type == "train_lora":
                 output = run_train_lora(
                     payload,
                     client,
-                    self.gpu_var.get(),
+                    self.allow_gpu,
                     self.is_running,
                     self.worker_id,
                     self.worker_token,
@@ -454,11 +359,7 @@ class VolunteerApp(tk.Tk):
                 self.invite_var.set(saved_invite)
             else:
                 self.invite_var.set(DEFAULT_INVITE_TOKEN)
-            self.cpu_var.set(int(data.get("cpu_limit", 50)))
-            self.gpu_var.set(bool(data.get("allow_gpu", False)))
             self.autostart_var.set(bool(data.get("autostart", False)))
-            self.auto_connect_var.set(bool(data.get("auto_connect", False)))
-            self.consent_var.set(bool(data.get("consent_accepted", False)))
         except Exception:
             return
 
@@ -470,11 +371,7 @@ class VolunteerApp(tk.Tk):
                     "server": self.server_var.get().strip(),
                     "name": self.name_var.get().strip(),
                     "invite": self.invite_var.get().strip(),
-                    "cpu_limit": int(self.cpu_var.get()),
-                    "allow_gpu": bool(self.gpu_var.get()),
                     "autostart": bool(self.autostart_var.get()),
-                    "auto_connect": bool(self.auto_connect_var.get()),
-                    "consent_accepted": bool(self.consent_var.get()),
                 },
                 indent=2,
             ),
@@ -551,6 +448,7 @@ def hardware_info() -> dict:
         "architecture": platform.architecture()[0],
         "python": platform.python_version(),
         "cpu_count": cpu_count,
+        "memory_total_mb": total_memory_mb(),
         "gpu_backend": "none",
         "torch_available": False,
     }
@@ -571,14 +469,47 @@ def hardware_info() -> dict:
     return info
 
 
+def total_memory_mb() -> int | None:
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+
+            class MemoryStatus(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MemoryStatus()
+            status.dwLength = ctypes.sizeof(MemoryStatus)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+            return int(status.ullTotalPhys / (1024 * 1024))
+        except Exception:
+            return None
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return int(pages * page_size / (1024 * 1024))
+    except Exception:
+        return None
+
+
 def hardware_summary() -> str:
     info = hardware_info()
     gpu = info.get("gpu_backend", "none")
     gpu_name = info.get("gpu_name")
     gpu_text = f"{gpu} ({gpu_name})" if gpu_name else gpu
+    memory = f" | RAM: {info['memory_total_mb']} MB" if info.get("memory_total_mb") else ""
     return (
         f"Hardware: {info['system']} {info['machine']} | "
-        f"CPU cores: {info['cpu_count']} | PyTorch/GPU: {gpu_text}"
+        f"CPU cores: {info['cpu_count']}{memory} | PyTorch/GPU: {gpu_text}"
     )
 
 

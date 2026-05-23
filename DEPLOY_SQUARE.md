@@ -96,6 +96,18 @@ A resposta esperada:
 { "status": "ok" }
 ```
 
+Para verificar a rede de um colaborador e mostrar se existe sinal de VPN, proxy ou datacenter, abra:
+
+```text
+https://ia-treiner.squareweb.app/vpn
+```
+
+Tambem existe uma versao JSON para diagnostico:
+
+```text
+https://ia-treiner.squareweb.app/check-vpn
+```
+
 ## Deploy via CLI
 
 ```bash

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import html
+import ipaddress
 import json
 import os
 import secrets
@@ -10,10 +12,13 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Literal
+from urllib import error as url_error
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib import request as url_request
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 
@@ -176,6 +181,158 @@ def clean_secret(value: str) -> str:
     return value
 
 
+def client_ip_from_request(request: Request) -> str:
+    for header_name in ("cf-connecting-ip", "x-real-ip"):
+        value = request.headers.get(header_name, "").strip()
+        if value:
+            return value
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else ""
+
+
+def is_private_ip(ip_value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(ip_value)
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback or address.is_reserved or address.is_link_local
+
+
+def lookup_ip_reputation(ip_value: str) -> dict[str, Any]:
+    if not ip_value or is_private_ip(ip_value):
+        return {
+            "status": "unknown",
+            "reason": "ip privado/local nao permite detectar VPN pela internet",
+        }
+
+    fields = "status,message,query,country,regionName,city,isp,org,as,proxy,hosting,mobile"
+    url = f"http://ip-api.com/json/{ip_value}?fields={fields}"
+    req = url_request.Request(url, headers={"User-Agent": "IATREINER-NetworkCheck/0.1"})
+    try:
+        with url_request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (url_error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return {"status": "unknown", "reason": f"falha ao consultar reputacao do IP: {exc}"}
+
+    if data.get("status") != "success":
+        return {"status": "unknown", "reason": data.get("message") or "consulta sem resultado", "raw": data}
+
+    org_text = f"{data.get('isp', '')} {data.get('org', '')} {data.get('as', '')}".lower()
+    provider_keywords = (
+        "vpn",
+        "proxy",
+        "hosting",
+        "datacenter",
+        "data center",
+        "cloud",
+        "amazon",
+        "aws",
+        "google cloud",
+        "microsoft",
+        "azure",
+        "digitalocean",
+        "ovh",
+        "hetzner",
+        "linode",
+        "vultr",
+    )
+    provider_suspect = any(keyword in org_text for keyword in provider_keywords)
+    proxy = bool(data.get("proxy"))
+    hosting = bool(data.get("hosting"))
+    suspected = proxy or hosting or provider_suspect
+    reasons = []
+    if proxy:
+        reasons.append("servico de IP marcou como proxy/VPN")
+    if hosting:
+        reasons.append("IP pertence a hospedagem/datacenter")
+    if provider_suspect:
+        reasons.append("provedor/ASN parece servico de VPN, proxy, cloud ou datacenter")
+    if not reasons:
+        reasons.append("nao ha sinal forte de VPN/proxy neste IP")
+
+    return {
+        "status": "success",
+        "ip": data.get("query") or ip_value,
+        "country": data.get("country"),
+        "region": data.get("regionName"),
+        "city": data.get("city"),
+        "isp": data.get("isp"),
+        "org": data.get("org"),
+        "asn": data.get("as"),
+        "mobile": bool(data.get("mobile")),
+        "proxy": proxy,
+        "hosting": hosting,
+        "vpn_or_proxy_suspected": suspected,
+        "confidence": "alta" if proxy or hosting else "media" if provider_suspect else "baixa",
+        "reasons": reasons,
+    }
+
+
+def render_network_check_html(result: dict[str, Any]) -> str:
+    suspected = bool(result.get("vpn_or_proxy_suspected"))
+    status_text = "VPN/proxy suspeito" if suspected else "Sem VPN/proxy detectado"
+    if result.get("status") != "success":
+        status_text = "Nao foi possivel verificar"
+    status_class = "bad" if suspected else "good"
+    if result.get("status") != "success":
+        status_class = "unknown"
+
+    rows = [
+        ("IP", result.get("ip") or result.get("client_ip") or "-"),
+        ("Resultado", status_text),
+        ("Confianca", result.get("confidence") or "-"),
+        ("Pais", result.get("country") or "-"),
+        ("Regiao", result.get("region") or "-"),
+        ("Cidade", result.get("city") or "-"),
+        ("Provedor", result.get("isp") or "-"),
+        ("Organizacao", result.get("org") or "-"),
+        ("ASN", result.get("asn") or "-"),
+        ("Proxy", "sim" if result.get("proxy") else "nao"),
+        ("Hospedagem/datacenter", "sim" if result.get("hosting") else "nao"),
+        ("Rede movel", "sim" if result.get("mobile") else "nao"),
+    ]
+    reason_items = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in result.get("reasons", []))
+    table_rows = "".join(
+        f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(value))}</td></tr>" for label, value in rows
+    )
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IATREINER - Verificacao de VPN</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; background: #f6f7f9; color: #16202a; }}
+    main {{ max-width: 760px; margin: 0 auto; padding: 32px 18px; }}
+    h1 {{ margin: 0 0 10px; font-size: 28px; }}
+    p {{ line-height: 1.5; }}
+    .status {{ margin: 18px 0; padding: 18px; border-radius: 8px; font-size: 22px; font-weight: 700; }}
+    .good {{ background: #e8f7ee; color: #106b35; border: 1px solid #bfe7cc; }}
+    .bad {{ background: #fdecec; color: #9b1c1c; border: 1px solid #f3bcbc; }}
+    .unknown {{ background: #fff6dd; color: #73510d; border: 1px solid #f2d58a; }}
+    table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }}
+    th, td {{ padding: 11px 12px; border-bottom: 1px solid #e6e8eb; text-align: left; vertical-align: top; }}
+    th {{ width: 210px; color: #46515c; background: #fbfbfc; }}
+    ul {{ background: white; border-radius: 8px; padding: 16px 18px 16px 36px; }}
+    .note {{ color: #5b6670; font-size: 14px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Verificacao de VPN</h1>
+    <p>Esta pagina verifica sinais de VPN, proxy ou datacenter no IP que acessou o servidor.</p>
+    <div class="status {status_class}">{html.escape(status_text)}</div>
+    <table>{table_rows}</table>
+    <h2>Motivos</h2>
+    <ul>{reason_items or "<li>Nenhum detalhe disponivel.</li>"}</ul>
+    <p class="note">A deteccao nao e garantia absoluta. Algumas VPNs nao sao detectadas e algumas redes corporativas podem parecer datacenter.</p>
+  </main>
+</body>
+</html>"""
+
+
 def ensure_column(connection, table_name: str, column_name: str, definition: str) -> None:
     if DATABASE_URL:
         rows = connection.execute(
@@ -207,10 +364,12 @@ def init_db() -> None:
                 status TEXT NOT NULL,
                 cpu_limit_percent INTEGER NOT NULL,
                 allow_gpu INTEGER NOT NULL,
+                memory_limit_mb INTEGER NOT NULL DEFAULT 0,
                 consent_text_accepted INTEGER NOT NULL
             )
             """
         )
+        ensure_column(connection, "workers", "memory_limit_mb", "memory_limit_mb INTEGER NOT NULL DEFAULT 0")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
@@ -250,20 +409,27 @@ init_db()
 class RegisterRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     invite_token: str = Field(min_length=1, max_length=200)
-    consent_text_accepted: bool
+    consent_text_accepted: bool = True
     device_info: dict[str, Any] = Field(default_factory=dict)
 
 
 class RegisterResponse(BaseModel):
     worker_id: str
     worker_token: str
+    config: dict[str, Any]
 
 
 class HeartbeatRequest(BaseModel):
     worker_token: str
     status: Literal["idle", "working", "paused", "stopped"]
+    cpu_limit_percent: int | None = Field(default=None, ge=5, le=100)
+    allow_gpu: bool | None = None
+
+
+class WorkerConfigRequest(BaseModel):
     cpu_limit_percent: int = Field(ge=5, le=100)
     allow_gpu: bool = False
+    memory_limit_mb: int = Field(default=0, ge=0, le=1_048_576)
 
 
 class JobSubmitRequest(BaseModel):
@@ -304,8 +470,17 @@ def row_to_worker(row: sqlite3.Row) -> dict[str, Any]:
     worker = dict(row)
     worker["device_info"] = json.loads(worker["device_info"])
     worker["allow_gpu"] = bool(worker["allow_gpu"])
+    worker["memory_limit_mb"] = int(worker.get("memory_limit_mb") or 0)
     worker["consent_text_accepted"] = bool(worker["consent_text_accepted"])
     return worker
+
+
+def worker_runtime_config(worker: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cpu_limit_percent": int(worker.get("cpu_limit_percent") or 50),
+        "allow_gpu": bool(worker.get("allow_gpu", False)),
+        "memory_limit_mb": int(worker.get("memory_limit_mb") or 0),
+    }
 
 
 def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
@@ -392,12 +567,26 @@ def requeue_stale_jobs(connection: sqlite3.Connection) -> int:
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"name": "IATREINER", "status": "online", "health": "/health"}
+    return {"name": "IATREINER", "status": "online", "health": "/health", "vpn_check": "/vpn"}
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/check-vpn")
+def check_vpn(request: Request) -> dict[str, Any]:
+    client_ip = client_ip_from_request(request)
+    result = lookup_ip_reputation(client_ip)
+    result["client_ip"] = client_ip
+    result["cloudflare_country"] = request.headers.get("cf-ipcountry")
+    return result
+
+
+@app.get("/vpn", response_class=HTMLResponse)
+def vpn_page(request: Request) -> HTMLResponse:
+    return HTMLResponse(render_network_check_html(check_vpn(request)))
 
 
 @app.post("/api/workers/register", response_model=RegisterResponse)
@@ -415,9 +604,9 @@ def register_worker(request: RegisterRequest) -> RegisterResponse:
             """
             INSERT INTO workers (
                 worker_id, worker_token, display_name, device_info, registered_at,
-                last_seen_at, status, cpu_limit_percent, allow_gpu, consent_text_accepted
+                last_seen_at, status, cpu_limit_percent, allow_gpu, memory_limit_mb, consent_text_accepted
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 worker_id,
@@ -428,26 +617,31 @@ def register_worker(request: RegisterRequest) -> RegisterResponse:
                 registered_at,
                 "idle",
                 50,
-                int(bool(request.device_info.get("allow_gpu", False))),
+                0,
+                0,
                 1,
             ),
         )
         connection.commit()
-    return RegisterResponse(worker_id=worker_id, worker_token=worker_token)
+    return RegisterResponse(
+        worker_id=worker_id,
+        worker_token=worker_token,
+        config={"cpu_limit_percent": 50, "allow_gpu": False, "memory_limit_mb": 0},
+    )
 
 
 @app.post("/api/workers/{worker_id}/heartbeat")
-def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, str]:
+def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, Any]:
     with db_lock, db_connect() as connection:
-        get_worker(connection, worker_id, request.worker_token)
+        worker = get_worker(connection, worker_id, request.worker_token)
         heartbeat_at = now()
         connection.execute(
             """
             UPDATE workers
-            SET last_seen_at = ?, status = ?, cpu_limit_percent = ?, allow_gpu = ?
+            SET last_seen_at = ?, status = ?
             WHERE worker_id = ?
             """,
-            (heartbeat_at, request.status, request.cpu_limit_percent, int(request.allow_gpu), worker_id),
+            (heartbeat_at, request.status, worker_id),
         )
         if request.status == "working":
             connection.execute(
@@ -459,7 +653,9 @@ def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, str]:
                 (heartbeat_at, worker_id),
             )
         connection.commit()
-    return {"status": "ok"}
+        worker["status"] = request.status
+        worker["last_seen_at"] = heartbeat_at
+    return {"status": "ok", "config": worker_runtime_config(worker)}
 
 
 @app.get("/api/workers/{worker_id}/jobs/next")
@@ -563,6 +759,28 @@ def admin_workers() -> dict[str, list[dict[str, Any]]]:
             visible["online"] = now() - float(worker.get("last_seen_at", 0)) < 30
             workers.append(visible)
     return {"workers": workers}
+
+
+@app.patch("/api/admin/workers/{worker_id}/config", dependencies=[Depends(require_admin)])
+def update_worker_config(worker_id: str, request: WorkerConfigRequest) -> dict[str, Any]:
+    with db_lock, db_connect() as connection:
+        row = connection.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="worker nao encontrado")
+        connection.execute(
+            """
+            UPDATE workers
+            SET cpu_limit_percent = ?, allow_gpu = ?, memory_limit_mb = ?
+            WHERE worker_id = ?
+            """,
+            (request.cpu_limit_percent, int(request.allow_gpu), request.memory_limit_mb, worker_id),
+        )
+        connection.commit()
+        updated = connection.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,)).fetchone()
+    worker = row_to_worker(updated)
+    visible = {k: v for k, v in worker.items() if k != "worker_token"}
+    visible["online"] = now() - float(worker.get("last_seen_at", 0)) < 30
+    return {"worker": visible}
 
 
 @app.post("/api/admin/jobs", dependencies=[Depends(require_admin)])

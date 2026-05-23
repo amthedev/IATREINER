@@ -1,4 +1,5 @@
 .venv/
+.DS_Store
 __pycache__/
 *.pyc
 server/data/
@@ -11,3 +12,5 @@ build/
 *.spec
 installer/Output/
 *.dmg
+local_storage/output.json
+local_storage/checkpoint.zip

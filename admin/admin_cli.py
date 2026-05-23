@@ -169,6 +169,19 @@ def main() -> None:
     sub.add_parser("workers", help="Lista voluntarios registrados")
     sub.add_parser("jobs", help="Lista jobs")
 
+    set_worker = sub.add_parser("set-worker", help="Altera limites de CPU/GPU/memoria de um worker")
+    set_worker.add_argument("worker_id")
+    set_worker.add_argument("--cpu-limit", type=int, required=True, help="Percentual de CPU entre 5 e 100")
+    gpu_group = set_worker.add_mutually_exclusive_group(required=True)
+    gpu_group.add_argument("--allow-gpu", action="store_true", help="Libera jobs com GPU/PyTorch")
+    gpu_group.add_argument("--deny-gpu", action="store_true", help="Bloqueia jobs com GPU/PyTorch")
+    set_worker.add_argument(
+        "--memory-limit-mb",
+        type=int,
+        default=0,
+        help="Limite de memoria em MB; use 0 para sem limite definido",
+    )
+
     submit = sub.add_parser("submit", help="Cria um job")
     submit.add_argument(
         "--job-type",
@@ -226,6 +239,22 @@ def main() -> None:
 
     if args.command == "jobs":
         print_json(api_request(args.server, args.token, "GET", "/api/admin/jobs"))
+        return
+
+    if args.command == "set-worker":
+        print_json(
+            api_request(
+                args.server,
+                args.token,
+                "PATCH",
+                f"/api/admin/workers/{args.worker_id}/config",
+                {
+                    "cpu_limit_percent": args.cpu_limit,
+                    "allow_gpu": bool(args.allow_gpu),
+                    "memory_limit_mb": args.memory_limit_mb,
+                },
+            )
+        )
         return
 
     if args.command == "submit":

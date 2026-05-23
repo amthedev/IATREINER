@@ -32,6 +32,10 @@ class AdminGui(tk.Tk):
         self.checkpoint_url_var = tk.StringVar(value="")
         self.max_steps_var = tk.IntVar(value=20)
         self.rank_var = tk.IntVar(value=8)
+        self.worker_cpu_var = tk.IntVar(value=50)
+        self.worker_gpu_var = tk.BooleanVar(value=False)
+        self.worker_memory_var = tk.IntVar(value=0)
+        self.workers_by_id: dict[str, dict] = {}
 
         self.build_ui()
         self.after(200, self.drain_messages)
@@ -41,7 +45,7 @@ class AdminGui(tk.Tk):
         root = ttk.Frame(self, padding=14)
         root.pack(fill="both", expand=True)
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(2, weight=1)
+        root.rowconfigure(3, weight=1)
 
         top = ttk.LabelFrame(root, text="Servidor", padding=10)
         top.grid(row=0, column=0, sticky="ew")
@@ -110,8 +114,25 @@ class AdminGui(tk.Tk):
             row=4, column=1, columnspan=7, sticky="ew", padx=(6, 12), pady=(8, 0)
         )
 
+        worker_controls = ttk.LabelFrame(root, text="Controle do worker selecionado", padding=10)
+        worker_controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(worker_controls, text="CPU %").grid(row=0, column=0, sticky="w")
+        ttk.Spinbox(worker_controls, from_=5, to=100, textvariable=self.worker_cpu_var, width=6).grid(
+            row=0, column=1, sticky="w", padx=(6, 14)
+        )
+        ttk.Checkbutton(worker_controls, text="Liberar GPU", variable=self.worker_gpu_var).grid(
+            row=0, column=2, sticky="w", padx=(0, 14)
+        )
+        ttk.Label(worker_controls, text="Memoria MB").grid(row=0, column=3, sticky="w")
+        ttk.Spinbox(worker_controls, from_=0, to=1048576, increment=512, textvariable=self.worker_memory_var, width=9).grid(
+            row=0, column=4, sticky="w", padx=(6, 14)
+        )
+        ttk.Button(worker_controls, text="Salvar limites", command=self.save_worker_config).grid(
+            row=0, column=5, sticky="w"
+        )
+
         panes = ttk.PanedWindow(root, orient="horizontal")
-        panes.grid(row=2, column=0, sticky="nsew")
+        panes.grid(row=3, column=0, sticky="nsew")
 
         workers_frame = ttk.LabelFrame(panes, text="Workers", padding=8)
         jobs_frame = ttk.LabelFrame(panes, text="Jobs", padding=8)
@@ -122,7 +143,7 @@ class AdminGui(tk.Tk):
         workers_frame.columnconfigure(0, weight=1)
         self.workers_tree = ttk.Treeview(
             workers_frame,
-            columns=("online", "status", "cpu", "gpu", "seen"),
+            columns=("online", "status", "cpu", "gpu", "memory", "seen"),
             show="tree headings",
             selectmode="browse",
         )
@@ -131,12 +152,14 @@ class AdminGui(tk.Tk):
         self.workers_tree.heading("status", text="Status")
         self.workers_tree.heading("cpu", text="CPU")
         self.workers_tree.heading("gpu", text="GPU")
+        self.workers_tree.heading("memory", text="Memoria")
         self.workers_tree.heading("seen", text="Visto")
         self.workers_tree.column("#0", width=220)
         self.workers_tree.column("online", width=70, anchor="center")
         self.workers_tree.column("status", width=90)
         self.workers_tree.column("cpu", width=60, anchor="center")
         self.workers_tree.column("gpu", width=60, anchor="center")
+        self.workers_tree.column("memory", width=80, anchor="center")
         self.workers_tree.column("seen", width=100)
         self.workers_tree.grid(row=0, column=0, sticky="nsew")
         self.workers_tree.bind("<<TreeviewSelect>>", self.on_worker_selected)
@@ -164,14 +187,19 @@ class AdminGui(tk.Tk):
         self.jobs_tree.grid(row=0, column=0, sticky="nsew")
 
         bottom = ttk.Frame(root)
-        bottom.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        bottom.grid(row=4, column=0, sticky="ew", pady=(10, 0))
         bottom.columnconfigure(0, weight=1)
         ttk.Label(bottom, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
 
     def on_worker_selected(self, _event=None) -> None:
         selected = self.workers_tree.selection()
         if selected:
-            self.target_worker_var.set(selected[0])
+            worker_id = selected[0]
+            self.target_worker_var.set(worker_id)
+            worker = self.workers_by_id.get(worker_id, {})
+            self.worker_cpu_var.set(int(worker.get("cpu_limit_percent") or 50))
+            self.worker_gpu_var.set(bool(worker.get("allow_gpu", False)))
+            self.worker_memory_var.set(int(worker.get("memory_limit_mb") or 0))
 
     def refresh_all(self) -> None:
         self.status_var.set("Atualizando...")
@@ -212,6 +240,28 @@ class AdminGui(tk.Tk):
         self.status_var.set("Enviando job...")
         self.run_background("submit", lambda: api_request(self.server_var.get(), self.token_var.get(), "POST", "/api/admin/jobs", body))
 
+    def save_worker_config(self) -> None:
+        worker_id = self.target_worker_var.get().strip()
+        if not worker_id:
+            messagebox.showwarning("IATREINER Admin", "Selecione um worker antes de salvar os limites.")
+            return
+        payload = {
+            "cpu_limit_percent": int(self.worker_cpu_var.get()),
+            "allow_gpu": bool(self.worker_gpu_var.get()),
+            "memory_limit_mb": int(self.worker_memory_var.get()),
+        }
+        self.status_var.set("Salvando limites...")
+        self.run_background(
+            "worker_config",
+            lambda: api_request(
+                self.server_var.get(),
+                self.token_var.get(),
+                "PATCH",
+                f"/api/admin/workers/{worker_id}/config",
+                payload,
+            ),
+        )
+
     def run_background(self, action: str, callback) -> None:
         def worker() -> None:
             try:
@@ -234,6 +284,9 @@ class AdminGui(tk.Tk):
                 job_id = payload.get("job", {}).get("job_id") if isinstance(payload, dict) else None
                 self.status_var.set(f"Job enviado: {job_id or 'ok'}")
                 self.refresh_all()
+            elif action == "worker_config":
+                self.status_var.set("Limites salvos")
+                self.refresh_all()
             elif action == "error":
                 self.status_var.set("Erro")
                 messagebox.showerror("IATREINER Admin", str(payload))
@@ -242,10 +295,11 @@ class AdminGui(tk.Tk):
     def render_data(self, data: dict) -> None:
         self.workers_tree.delete(*self.workers_tree.get_children())
         self.jobs_tree.delete(*self.jobs_tree.get_children())
+        self.workers_by_id = {}
 
         for worker in data.get("workers", []):
             worker_id = worker.get("worker_id", "")
-            device = worker.get("device_info", {})
+            self.workers_by_id[worker_id] = worker
             label = f"{worker.get('display_name', 'worker')} ({worker_id})"
             self.workers_tree.insert(
                 "",
@@ -256,7 +310,8 @@ class AdminGui(tk.Tk):
                     "sim" if worker.get("online") else "nao",
                     worker.get("status", ""),
                     worker.get("cpu_limit_percent", ""),
-                    device.get("gpu_backend", "none"),
+                    "sim" if worker.get("allow_gpu") else "nao",
+                    worker.get("memory_limit_mb", 0) or "-",
                     format_time(worker.get("last_seen_at")),
                 ),
             )

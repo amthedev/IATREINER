@@ -56,6 +56,13 @@ def train_lora_job(
     rank = clamp_int(payload.get("rank", 8), 1, 128)
     batch_size = clamp_int(payload.get("batch_size", 1), 1, 16)
     gradient_accumulation_steps = clamp_int(payload.get("gradient_accumulation_steps", 1), 1, 64)
+    memory_limit_mb = clamp_int(payload.get("memory_limit_mb", 0), 0, 1_048_576)
+    if memory_limit_mb and memory_limit_mb < 4096:
+        batch_size = min(batch_size, 1)
+        max_length = min(max_length, 128)
+    elif memory_limit_mb and memory_limit_mb < 8192:
+        batch_size = min(batch_size, 1)
+        max_length = min(max_length, 256)
     learning_rate = clamp_float(payload.get("learning_rate", 2e-4), 1e-6, 1e-2)
     checkpoint_url = payload.get("checkpoint_url")
     checkpoint_input_url = payload.get("checkpoint_input_url") or checkpoint_url
@@ -175,6 +182,9 @@ def train_lora_job(
         "examples": len(texts),
         "max_steps": max_steps,
         "rank": rank,
+        "batch_size": batch_size,
+        "max_length": max_length,
+        "memory_limit_mb": memory_limit_mb,
         "target_modules": target_modules,
         "checkpoint_step": trainer.state.global_step,
         "resumed_from_checkpoint": bool(resume_checkpoint),
