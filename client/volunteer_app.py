@@ -9,6 +9,7 @@ import plistlib
 import platform
 import queue
 import random
+import ssl
 import subprocess
 import sys
 import threading
@@ -29,6 +30,16 @@ CONSENT_TEXT = (
     "da tela, arquivos, teclado, mouse ou terminal."
 )
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+USER_AGENT = "IATREINER-Worker/0.1 (+https://github.com/amthedev/IATREINER)"
+
+
+def ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi  # type: ignore
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 class ApiClient:
@@ -40,7 +51,7 @@ class ApiClient:
         req = request.Request(
             f"{self.server_url}{path}",
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": USER_AGENT},
             method="POST",
         )
         return self._open(req)
@@ -50,18 +61,22 @@ class ApiClient:
         req = request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": USER_AGENT},
             method="PUT",
         )
         self._open(req, expect_json=False)
 
     def get(self, path: str) -> dict:
-        req = request.Request(f"{self.server_url}{path}", method="GET")
+        req = request.Request(
+            f"{self.server_url}{path}",
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+            method="GET",
+        )
         return self._open(req)
 
     def _open(self, req: request.Request, expect_json: bool = True) -> dict:
         try:
-            with request.urlopen(req, timeout=20) as response:
+            with request.urlopen(req, timeout=20, context=ssl_context()) as response:
                 if not expect_json:
                     response.read()
                     return {}
@@ -736,8 +751,8 @@ def normalize_examples(data) -> list[dict]:
 
 
 def load_json_from_url(url: str):
-    req = request.Request(url, method="GET")
-    with request.urlopen(req, timeout=60) as response:
+    req = request.Request(url, headers={"Accept": "application/json", "User-Agent": USER_AGENT}, method="GET")
+    with request.urlopen(req, timeout=60, context=ssl_context()) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_DOWNLOAD_BYTES:
             raise RuntimeError("artefato excede limite de download")

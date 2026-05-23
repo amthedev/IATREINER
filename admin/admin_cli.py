@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import ssl
 from pathlib import Path
 from urllib import error, request
 
 
 DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
 DEFAULT_ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
+USER_AGENT = "IATREINER-Admin/0.1 (+https://github.com/amthedev/IATREINER)"
+
+
+def ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi  # type: ignore
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def api_request(server: str, token: str, method: str, path: str, payload: dict | None = None) -> dict:
@@ -15,11 +26,16 @@ def api_request(server: str, token: str, method: str, path: str, payload: dict |
     req = request.Request(
         f"{server.rstrip('/')}{path}",
         data=data,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
         method=method,
     )
     try:
-        with request.urlopen(req, timeout=30) as response:
+        with request.urlopen(req, timeout=30, context=ssl_context()) as response:
             return json.loads(response.read().decode("utf-8"))
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
