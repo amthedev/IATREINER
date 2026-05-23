@@ -6,6 +6,10 @@ from pathlib import Path
 from urllib import error, request
 
 
+DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
+DEFAULT_ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
+
+
 def api_request(server: str, token: str, method: str, path: str, payload: dict | None = None) -> dict:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = request.Request(
@@ -126,8 +130,8 @@ def aggregate_model_deltas(jobs: list[dict], batch_id: str | None) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Admin ConsentCompute")
-    parser.add_argument("--server", required=True, help="URL do servidor, ex: http://127.0.0.1:8000")
-    parser.add_argument("--token", required=True, help="ADMIN_TOKEN configurado no servidor")
+    parser.add_argument("--server", default=DEFAULT_SERVER_URL, help=f"URL do servidor; padrao: {DEFAULT_SERVER_URL}")
+    parser.add_argument("--token", default=DEFAULT_ADMIN_TOKEN, help="Token admin; por padrao usa o token fixo do projeto")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("workers", help="Lista voluntarios registrados")

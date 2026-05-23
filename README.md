@@ -50,7 +50,7 @@ cd server
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-ADMIN_TOKEN=troque-este-token VOLUNTEER_INVITE_TOKEN=convite-local python main.py
+python main.py
 ```
 
 No Windows PowerShell:
@@ -60,8 +60,6 @@ cd server
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-$env:ADMIN_TOKEN="troque-este-token"
-$env:VOLUNTEER_INVITE_TOKEN="convite-local"
 python main.py
 ```
 
@@ -76,8 +74,8 @@ python volunteer_app.py
 
 Preencha:
 
-- Servidor: `http://127.0.0.1:8000`
-- Convite: `convite-local`
+- Servidor: `https://ia-treiner.squareweb.app` ja vem preenchido.
+- Convite: ja vem preenchido.
 
 Marque o consentimento e clique em **Iniciar colaboracao**.
 
@@ -85,10 +83,10 @@ Marque o consentimento e clique em **Iniciar colaboracao**.
 
 ```bash
 cd admin
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token workers
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type hash_benchmark --seconds 5
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token jobs
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token collect
+python admin_cli.py workers
+python admin_cli.py submit --job-type hash_benchmark --seconds 5
+python admin_cli.py jobs
+python admin_cli.py collect
 ```
 
 ## Deploy na Square Cloud
@@ -99,7 +97,7 @@ Passos resumidos:
 
 1. Importe o repositorio `amthedev/IATREINER` na Square Cloud.
 2. Use a raiz do repositorio como projeto.
-3. Defina `ADMIN_TOKEN`, `VOLUNTEER_INVITE_TOKEN` e `STATE_PATH` nas variaveis de ambiente.
+3. Opcionalmente defina `DATABASE_PATH`; por padrao o SQLite usa `data/iatreiner.sqlite3`.
 4. Use a URL publica do app no cliente e no admin.
 
 Com a CLI:
@@ -339,9 +337,9 @@ Exemplos:
 
 ```bash
 cd admin
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type generate_embeddings --payload-file ../examples/generate_embeddings_payload.json
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type fine_tune_chunk --payload-file ../examples/fine_tune_chunk_payload.json
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type evaluate_model --payload-file ../examples/evaluate_model_payload.json
+python admin_cli.py submit --job-type generate_embeddings --payload-file ../examples/generate_embeddings_payload.json
+python admin_cli.py submit --job-type fine_tune_chunk --payload-file ../examples/fine_tune_chunk_payload.json
+python admin_cli.py submit --job-type evaluate_model --payload-file ../examples/evaluate_model_payload.json
 ```
 
 ## Treino distribuido por chunks
@@ -358,16 +356,15 @@ Exemplo:
 
 ```bash
 cd admin
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type fine_tune_chunk --batch-id treino-001 --payload-file ../examples/fine_tune_chunk_payload.json
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token aggregate-deltas --batch-id treino-001 --output-file ../aggregated-model.json
-python admin_cli.py --server http://127.0.0.1:8000 --token troque-este-token submit --job-type evaluate_model --payload-json "{\"model_url\":\"https://storage.example.com/aggregated-model.json?assinatura=...\",\"input_url\":\"https://storage.example.com/eval.json?assinatura=...\"}"
+python admin_cli.py submit --job-type fine_tune_chunk --batch-id treino-001 --payload-file ../examples/fine_tune_chunk_payload.json
+python admin_cli.py aggregate-deltas --batch-id treino-001 --output-file ../aggregated-model.json
+python admin_cli.py submit --job-type evaluate_model --payload-json "{\"model_url\":\"https://storage.example.com/aggregated-model.json?assinatura=...\",\"input_url\":\"https://storage.example.com/eval.json?assinatura=...\"}"
 ```
 
 No MVP, a agregacao faz media ponderada dos deltas por quantidade de exemplos. Para modelos grandes, o ideal e guardar os deltas no storage externo via `output_url` e fazer a agregacao em uma maquina sua ou em um job dedicado.
 
 ## Proximos passos seguros
 
-- Adicionar fila persistente com banco de dados.
 - Criar assinatura digital para jobs.
 - Adicionar pagina web de dashboard.
 - Empacotar o app com instalador assinado para Windows.

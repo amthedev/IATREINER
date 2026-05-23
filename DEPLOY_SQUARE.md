@@ -8,17 +8,17 @@ Arquivos importantes na raiz:
 - `requirements.txt`: dependencias instaladas com `pip install`.
 - `server/main.py`: API FastAPI iniciada pelo comando `START`.
 
-## Variaveis obrigatorias
+## Variaveis de ambiente
 
-Configure estas variaveis de ambiente no painel da Square Cloud:
+Nao e mais obrigatorio configurar tokens no painel da Square Cloud. O token admin e o convite dos voluntarios ja estao fixos no codigo do projeto, conforme solicitado.
+
+Opcionalmente, configure o caminho do banco SQLite:
 
 ```text
-ADMIN_TOKEN=use-um-token-grande-e-secreto
-VOLUNTEER_INVITE_TOKEN=use-um-convite-grande-e-secreto
-STATE_PATH=data/state.json
+DATABASE_PATH=data/iatreiner.sqlite3
 ```
 
-`ADMIN_TOKEN` e usado pelo app admin. `VOLUNTEER_INVITE_TOKEN` e usado pelo app desktop dos voluntarios.
+Se `DATABASE_PATH` nao for configurado, esse caminho padrao sera usado automaticamente.
 
 ## Deploy via GitHub
 
@@ -26,12 +26,12 @@ STATE_PATH=data/state.json
 2. Escolha importar um repositorio do GitHub.
 3. Selecione `amthedev/IATREINER`.
 4. Confirme que o projeto usa a raiz do repositorio.
-5. Configure as variaveis de ambiente acima.
+5. Configure `DATABASE_PATH` apenas se quiser mudar o caminho padrao do SQLite.
 6. Publique como aplicacao web/API.
 7. Depois do deploy, teste:
 
 ```bash
-curl https://sua-url-square-cloud/health
+curl https://ia-treiner.squareweb.app/health
 ```
 
 A resposta esperada:
@@ -50,11 +50,15 @@ squarecloud upload
 
 ## Usando depois do deploy
 
-No app desktop do voluntario, use a URL publica da Square Cloud no campo `Servidor`.
+O app desktop do voluntario ja vem apontando para:
+
+```text
+https://ia-treiner.squareweb.app
+```
 
 No admin:
 
 ```bash
 cd admin
-python admin_cli.py --server https://sua-url-square-cloud --token seu-admin-token workers
+python admin_cli.py workers
 ```

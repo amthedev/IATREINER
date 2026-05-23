@@ -20,6 +20,8 @@ from urllib import error, request
 
 APP_DIR = Path.home() / ".consentcompute"
 CONFIG_PATH = APP_DIR / "client.json"
+DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
+DEFAULT_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
 CONSENT_TEXT = (
     "Eu aceito colaborar voluntariamente com processamento limitado neste computador. "
     "Entendo que posso parar a qualquer momento e que este app nao permite controle remoto "
@@ -83,9 +85,9 @@ class VolunteerApp(tk.Tk):
         self.worker_id = ""
         self.worker_token = ""
 
-        self.server_var = tk.StringVar(value="http://127.0.0.1:8000")
+        self.server_var = tk.StringVar(value=DEFAULT_SERVER_URL)
         self.name_var = tk.StringVar(value=platform.node() or "voluntario")
-        self.invite_var = tk.StringVar(value="")
+        self.invite_var = tk.StringVar(value=DEFAULT_INVITE_TOKEN)
         self.cpu_var = tk.IntVar(value=50)
         self.gpu_var = tk.BooleanVar(value=False)
         self.autostart_var = tk.BooleanVar(value=False)
@@ -339,9 +341,17 @@ class VolunteerApp(tk.Tk):
             return
         try:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            self.server_var.set(data.get("server", self.server_var.get()))
+            saved_server = data.get("server", "")
+            if saved_server and "127.0.0.1" not in saved_server and "localhost" not in saved_server:
+                self.server_var.set(saved_server)
+            else:
+                self.server_var.set(DEFAULT_SERVER_URL)
             self.name_var.set(data.get("name", self.name_var.get()))
-            self.invite_var.set(data.get("invite", ""))
+            saved_invite = data.get("invite", "")
+            if saved_invite and saved_invite != "convite-local":
+                self.invite_var.set(saved_invite)
+            else:
+                self.invite_var.set(DEFAULT_INVITE_TOKEN)
             self.cpu_var.set(int(data.get("cpu_limit", 50)))
             self.gpu_var.set(bool(data.get("allow_gpu", False)))
             self.autostart_var.set(bool(data.get("autostart", False)))

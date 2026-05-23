@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -13,9 +14,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "change-me-admin-token")
-VOLUNTEER_INVITE_TOKEN = os.getenv("VOLUNTEER_INVITE_TOKEN", "change-me-invite-token")
-STATE_PATH = Path(os.getenv("STATE_PATH", "data/state.json"))
+DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
+VOLUNTEER_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
+ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/iatreiner.sqlite3"))
 ALLOWED_JOB_TYPES = {
     "hash_benchmark",
     "matrix_benchmark",
@@ -27,7 +29,7 @@ ALLOWED_JOB_TYPES = {
 }
 
 app = FastAPI(title="ConsentCompute Relay", version="0.1.0")
-state_lock = threading.Lock()
+db_lock = threading.Lock()
 
 
 def now() -> float:
@@ -38,26 +40,53 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(10)}"
 
 
-def empty_state() -> dict[str, Any]:
-    return {"workers": {}, "jobs": {}}
+def db_connect() -> sqlite3.Connection:
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
 
 
-def load_state() -> dict[str, Any]:
-    if not STATE_PATH.exists():
-        return empty_state()
-    with STATE_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+def init_db() -> None:
+    with db_lock, db_connect() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS workers (
+                worker_id TEXT PRIMARY KEY,
+                worker_token TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                device_info TEXT NOT NULL,
+                registered_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                status TEXT NOT NULL,
+                cpu_limit_percent INTEGER NOT NULL,
+                allow_gpu INTEGER NOT NULL,
+                consent_text_accepted INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id TEXT PRIMARY KEY,
+                job_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                target_worker_id TEXT,
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                started_at REAL,
+                finished_at REAL,
+                worker_id TEXT,
+                output TEXT,
+                error TEXT
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
+        connection.commit()
 
 
-def save_state(state: dict[str, Any]) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = STATE_PATH.with_suffix(".tmp")
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(state, handle, indent=2, sort_keys=True)
-    tmp_path.replace(STATE_PATH)
-
-
-STATE = load_state()
+init_db()
 
 
 class RegisterRequest(BaseModel):
@@ -106,11 +135,49 @@ def require_admin(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="admin token invalido")
 
 
-def get_worker(state: dict[str, Any], worker_id: str, worker_token: str) -> dict[str, Any]:
-    worker = state["workers"].get(worker_id)
+def row_to_worker(row: sqlite3.Row) -> dict[str, Any]:
+    worker = dict(row)
+    worker["device_info"] = json.loads(worker["device_info"])
+    worker["allow_gpu"] = bool(worker["allow_gpu"])
+    worker["consent_text_accepted"] = bool(worker["consent_text_accepted"])
+    return worker
+
+
+def row_to_job(row: sqlite3.Row) -> dict[str, Any]:
+    job = dict(row)
+    job["payload"] = json.loads(job["payload"])
+    job["output"] = json.loads(job["output"]) if job.get("output") else None
+    return job
+
+
+def get_worker(connection: sqlite3.Connection, worker_id: str, worker_token: str) -> dict[str, Any]:
+    row = connection.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,)).fetchone()
+    worker = row_to_worker(row) if row else None
     if not worker or not secrets.compare_digest(worker.get("worker_token", ""), worker_token):
         raise HTTPException(status_code=401, detail="worker token invalido")
     return worker
+
+
+def save_job_result(
+    connection: sqlite3.Connection,
+    job_id: str,
+    status: str,
+    output: dict[str, Any],
+    error_message: str | None,
+) -> None:
+    connection.execute(
+        """
+        UPDATE jobs
+        SET status = ?, finished_at = ?, output = ?, error = ?
+        WHERE job_id = ?
+        """,
+        (status, now(), json.dumps(output), error_message, job_id),
+    )
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"name": "IATREINER", "status": "online", "health": "/health"}
 
 
 @app.get("/health")
@@ -127,78 +194,101 @@ def register_worker(request: RegisterRequest) -> RegisterResponse:
 
     worker_id = new_id("worker")
     worker_token = secrets.token_urlsafe(24)
-    with state_lock:
-        STATE["workers"][worker_id] = {
-            "worker_id": worker_id,
-            "worker_token": worker_token,
-            "display_name": request.display_name,
-            "device_info": request.device_info,
-            "registered_at": now(),
-            "last_seen_at": now(),
-            "status": "idle",
-            "cpu_limit_percent": 50,
-            "allow_gpu": bool(request.device_info.get("allow_gpu", False)),
-            "consent_text_accepted": True,
-        }
-        save_state(STATE)
+    registered_at = now()
+    with db_lock, db_connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO workers (
+                worker_id, worker_token, display_name, device_info, registered_at,
+                last_seen_at, status, cpu_limit_percent, allow_gpu, consent_text_accepted
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                worker_id,
+                worker_token,
+                request.display_name,
+                json.dumps(request.device_info),
+                registered_at,
+                registered_at,
+                "idle",
+                50,
+                int(bool(request.device_info.get("allow_gpu", False))),
+                1,
+            ),
+        )
+        connection.commit()
     return RegisterResponse(worker_id=worker_id, worker_token=worker_token)
 
 
 @app.post("/api/workers/{worker_id}/heartbeat")
 def heartbeat(worker_id: str, request: HeartbeatRequest) -> dict[str, str]:
-    with state_lock:
-        worker = get_worker(STATE, worker_id, request.worker_token)
-        worker["last_seen_at"] = now()
-        worker["status"] = request.status
-        worker["cpu_limit_percent"] = request.cpu_limit_percent
-        worker["allow_gpu"] = request.allow_gpu
-        save_state(STATE)
+    with db_lock, db_connect() as connection:
+        get_worker(connection, worker_id, request.worker_token)
+        connection.execute(
+            """
+            UPDATE workers
+            SET last_seen_at = ?, status = ?, cpu_limit_percent = ?, allow_gpu = ?
+            WHERE worker_id = ?
+            """,
+            (now(), request.status, request.cpu_limit_percent, int(request.allow_gpu), worker_id),
+        )
+        connection.commit()
     return {"status": "ok"}
 
 
 @app.get("/api/workers/{worker_id}/jobs/next")
 def next_job(worker_id: str, worker_token: str) -> dict[str, Any]:
-    with state_lock:
-        get_worker(STATE, worker_id, worker_token)
-        for job in STATE["jobs"].values():
+    with db_lock, db_connect() as connection:
+        worker = get_worker(connection, worker_id, worker_token)
+        rows = connection.execute(
+            "SELECT * FROM jobs WHERE status = ? ORDER BY created_at ASC",
+            ("pending",),
+        ).fetchall()
+        for row in rows:
+            job = row_to_job(row)
             target = job.get("target_worker_id")
             requires_gpu = bool(job.get("payload", {}).get("require_gpu", False))
-            worker_allows_gpu = bool(STATE["workers"][worker_id].get("allow_gpu", False))
+            worker_allows_gpu = bool(worker.get("allow_gpu", False))
             if (
                 job["status"] == "pending"
                 and (target is None or target == worker_id)
                 and (not requires_gpu or worker_allows_gpu)
             ):
+                started_at = now()
+                connection.execute(
+                    "UPDATE jobs SET status = ?, worker_id = ?, started_at = ? WHERE job_id = ?",
+                    ("running", worker_id, started_at, job["job_id"]),
+                )
+                connection.commit()
                 job["status"] = "running"
                 job["worker_id"] = worker_id
-                job["started_at"] = now()
-                save_state(STATE)
+                job["started_at"] = started_at
                 return {"job": public_job(job)}
     return {"job": None}
 
 
 @app.post("/api/workers/{worker_id}/jobs/{job_id}/result")
 def submit_result(worker_id: str, job_id: str, request: JobResultRequest) -> dict[str, str]:
-    with state_lock:
-        get_worker(STATE, worker_id, request.worker_token)
-        job = STATE["jobs"].get(job_id)
-        if not job:
+    with db_lock, db_connect() as connection:
+        get_worker(connection, worker_id, request.worker_token)
+        row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="job nao encontrado")
+        job = row_to_job(row)
         if job.get("worker_id") != worker_id:
             raise HTTPException(status_code=403, detail="job pertence a outro worker")
-        job["status"] = request.status
-        job["finished_at"] = now()
-        job["output"] = request.output
-        job["error"] = request.error
-        save_state(STATE)
+        save_job_result(connection, job_id, request.status, request.output, request.error)
+        connection.commit()
     return {"status": "ok"}
 
 
 @app.get("/api/admin/workers", dependencies=[Depends(require_admin)])
 def admin_workers() -> dict[str, list[dict[str, Any]]]:
-    with state_lock:
+    with db_lock, db_connect() as connection:
         workers = []
-        for worker in STATE["workers"].values():
+        for row in connection.execute("SELECT * FROM workers ORDER BY registered_at DESC").fetchall():
+            worker = row_to_worker(row)
             visible = {k: v for k, v in worker.items() if k != "worker_token"}
             visible["online"] = now() - float(worker.get("last_seen_at", 0)) < 30
             workers.append(visible)
@@ -211,10 +301,11 @@ def submit_job(request: JobSubmitRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="tipo de job nao permitido")
 
     job_id = new_id("job")
+    payload = sanitize_payload(request.job_type, request.payload)
     job = {
         "job_id": job_id,
         "job_type": request.job_type,
-        "payload": sanitize_payload(request.job_type, request.payload),
+        "payload": payload,
         "target_worker_id": request.target_worker_id,
         "status": "pending",
         "created_at": now(),
@@ -222,17 +313,38 @@ def submit_job(request: JobSubmitRequest) -> dict[str, Any]:
         "output": None,
         "error": None,
     }
-    with state_lock:
-        STATE["jobs"][job_id] = job
-        save_state(STATE)
+    with db_lock, db_connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO jobs (
+                job_id, job_type, payload, target_worker_id, status, created_at,
+                started_at, finished_at, worker_id, output, error
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_id,
+                request.job_type,
+                json.dumps(payload),
+                request.target_worker_id,
+                "pending",
+                job["created_at"],
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        )
+        connection.commit()
     return {"job": public_job(job)}
 
 
 @app.get("/api/admin/jobs", dependencies=[Depends(require_admin)])
 def admin_jobs() -> dict[str, list[dict[str, Any]]]:
-    with state_lock:
-        jobs = [public_job(job) for job in STATE["jobs"].values()]
-    jobs.sort(key=lambda item: item["created_at"], reverse=True)
+    with db_lock, db_connect() as connection:
+        rows = connection.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+        jobs = [public_job(row_to_job(row)) for row in rows]
     return {"jobs": jobs}
 
 
