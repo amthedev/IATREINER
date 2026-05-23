@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 DEFAULT_SERVER_URL = "https://ia-treiner.squareweb.app"
 VOLUNTEER_INVITE_TOKEN = "Urw9guyr50YyrvAoKL7ySnmacI0yuTWSC6g-6b6_D9U"
 ADMIN_TOKEN = "IHybFWKOukrIoNex4j9q0Va12yUqLSQEbUu6QNNjuac"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", "data/iatreiner.sqlite3"))
 WORKER_OFFLINE_SECONDS = int(os.getenv("WORKER_OFFLINE_SECONDS", "120"))
 JOB_LEASE_SECONDS = int(os.getenv("JOB_LEASE_SECONDS", "1800"))
@@ -43,15 +44,52 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(10)}"
 
 
-def db_connect() -> sqlite3.Connection:
+class PostgresConnection:
+    def __init__(self, database_url: str):
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except Exception as exc:
+            raise RuntimeError("DATABASE_URL exige a dependencia psycopg[binary] instalada") from exc
+
+        self.connection = psycopg.connect(database_url, row_factory=dict_row)
+
+    def __enter__(self):
+        self.connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return self.connection.__exit__(exc_type, exc, tb)
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()):
+        return self.connection.execute(sql.replace("?", "%s"), params)
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+
+def db_connect():
+    if DATABASE_URL:
+        return PostgresConnection(DATABASE_URL)
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
-def ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
-    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+def ensure_column(connection, table_name: str, column_name: str, definition: str) -> None:
+    if DATABASE_URL:
+        rows = connection.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            """,
+            (table_name, column_name),
+        ).fetchall()
+        columns = {row["column_name"] for row in rows}
+    else:
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
     if column_name not in columns:
         connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {definition}")
 
@@ -65,8 +103,8 @@ def init_db() -> None:
                 worker_token TEXT NOT NULL,
                 display_name TEXT NOT NULL,
                 device_info TEXT NOT NULL,
-                registered_at REAL NOT NULL,
-                last_seen_at REAL NOT NULL,
+                registered_at DOUBLE PRECISION NOT NULL,
+                last_seen_at DOUBLE PRECISION NOT NULL,
                 status TEXT NOT NULL,
                 cpu_limit_percent INTEGER NOT NULL,
                 allow_gpu INTEGER NOT NULL,
@@ -82,27 +120,27 @@ def init_db() -> None:
                 payload TEXT NOT NULL,
                 target_worker_id TEXT,
                 status TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                started_at REAL,
-                finished_at REAL,
+                created_at DOUBLE PRECISION NOT NULL,
+                started_at DOUBLE PRECISION,
+                finished_at DOUBLE PRECISION,
                 worker_id TEXT,
                 output TEXT,
                 error TEXT,
                 attempts INTEGER NOT NULL DEFAULT 0,
-                last_heartbeat_at REAL,
+                last_heartbeat_at DOUBLE PRECISION,
                 reset_reason TEXT,
                 checkpoint_url TEXT,
                 checkpoint_step INTEGER,
-                checkpoint_at REAL
+                checkpoint_at DOUBLE PRECISION
             )
             """
         )
         ensure_column(connection, "jobs", "attempts", "attempts INTEGER NOT NULL DEFAULT 0")
-        ensure_column(connection, "jobs", "last_heartbeat_at", "last_heartbeat_at REAL")
+        ensure_column(connection, "jobs", "last_heartbeat_at", "last_heartbeat_at DOUBLE PRECISION")
         ensure_column(connection, "jobs", "reset_reason", "reset_reason TEXT")
         ensure_column(connection, "jobs", "checkpoint_url", "checkpoint_url TEXT")
         ensure_column(connection, "jobs", "checkpoint_step", "checkpoint_step INTEGER")
-        ensure_column(connection, "jobs", "checkpoint_at", "checkpoint_at REAL")
+        ensure_column(connection, "jobs", "checkpoint_at", "checkpoint_at DOUBLE PRECISION")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
         connection.commit()
 

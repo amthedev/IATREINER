@@ -123,8 +123,9 @@ Passos resumidos:
 
 1. Importe o repositorio `amthedev/IATREINER` na Square Cloud.
 2. Use a raiz do repositorio como projeto.
-3. Opcionalmente defina `DATABASE_PATH`; por padrao o SQLite usa `data/iatreiner.sqlite3`.
-4. Use a URL publica do app no cliente e no admin.
+3. Para producao, defina `DATABASE_URL` com a URL do PostgreSQL no painel da Square Cloud.
+4. Se `DATABASE_URL` nao existir, o servidor usa SQLite em `data/iatreiner.sqlite3`.
+5. Use a URL publica do app no cliente e no admin.
 
 Com a CLI:
 
@@ -378,7 +379,7 @@ ou:
 
 Se `output_url` for informado, o worker envia um `.zip` com o adapter LoRA por `PUT`. Se nao for informado, o adapter fica salvo localmente no worker em `~/.consentcompute/lora_runs/`.
 
-Para nao perder progresso quando um PC cai, informe `checkpoint_url` ou o par `checkpoint_input_url`/`checkpoint_output_url`. O worker salva checkpoints a cada `checkpoint_save_steps`, envia o `.zip` para o storage externo e registra no SQLite do servidor o ultimo step salvo. Se o job voltar para a fila, o proximo worker recebe esse checkpoint e tenta continuar dali.
+Para nao perder progresso quando um PC cai, informe `checkpoint_url` ou o par `checkpoint_input_url`/`checkpoint_output_url`. O worker salva checkpoints a cada `checkpoint_save_steps`, envia o `.zip` para o storage externo e registra no banco do servidor o ultimo step salvo. Se o job voltar para a fila, o proximo worker recebe esse checkpoint e tenta continuar dali.
 
 Nao coloque o arquivo do checkpoint dentro do SQLite. O banco guarda so metadados; o arquivo grande deve ficar em S3, R2, Backblaze ou storage equivalente.
 

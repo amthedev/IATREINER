@@ -12,7 +12,15 @@ Arquivos importantes na raiz:
 
 Nao e mais obrigatorio configurar tokens no painel da Square Cloud. O token admin e o convite dos voluntarios ja estao fixos no codigo do projeto, conforme solicitado.
 
-Opcionalmente, configure o caminho do banco SQLite:
+Para usar PostgreSQL na Square Cloud, configure `DATABASE_URL` no painel da aplicacao:
+
+```text
+DATABASE_URL=postgresql://usuario:senha@host:porta/database
+```
+
+Nao coloque a URL real com senha dentro do GitHub. Ela deve ficar apenas nas variaveis de ambiente da Square Cloud.
+
+Se `DATABASE_URL` nao estiver definido, o servidor usa SQLite local. Opcionalmente, configure o caminho do SQLite:
 
 ```text
 DATABASE_PATH=data/iatreiner.sqlite3
@@ -40,7 +48,7 @@ Os workers tambem mantem checkpoint local no proprio computador para retomar o m
 2. Escolha importar um repositorio do GitHub.
 3. Selecione `amthedev/IATREINER`.
 4. Confirme que o projeto usa a raiz do repositorio.
-5. Configure `DATABASE_PATH` apenas se quiser mudar o caminho padrao do SQLite.
+5. Configure `DATABASE_URL` para usar PostgreSQL; use `DATABASE_PATH` apenas se quiser continuar com SQLite.
 6. Publique como aplicacao web/API.
 7. Depois do deploy, teste:
 
