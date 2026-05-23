@@ -238,17 +238,17 @@ def lookup_ip_reputation(ip_value: str) -> dict[str, Any]:
         "linode",
         "vultr",
     )
-    provider_suspect = any(keyword in org_text for keyword in provider_keywords)
+    provider_match = any(keyword in org_text for keyword in provider_keywords)
     proxy = bool(data.get("proxy"))
     hosting = bool(data.get("hosting"))
-    suspected = proxy or hosting or provider_suspect
+    suspected = proxy
     reasons = []
     if proxy:
         reasons.append("servico de IP marcou como proxy/VPN")
-    if hosting:
-        reasons.append("IP pertence a hospedagem/datacenter")
-    if provider_suspect:
-        reasons.append("provedor/ASN parece servico de VPN, proxy, cloud ou datacenter")
+    if hosting and not suspected:
+        reasons.append("IP parece hospedagem/datacenter, mas nao foi marcado como VPN/proxy")
+    if provider_match and not suspected:
+        reasons.append("provedor/ASN merece atencao, mas nao foi marcado como VPN/proxy")
     if not reasons:
         reasons.append("nao ha sinal forte de VPN/proxy neste IP")
 
@@ -265,7 +265,8 @@ def lookup_ip_reputation(ip_value: str) -> dict[str, Any]:
         "proxy": proxy,
         "hosting": hosting,
         "vpn_or_proxy_suspected": suspected,
-        "confidence": "alta" if proxy or hosting else "media" if provider_suspect else "baixa",
+        "confidence": "alta" if suspected else "baixa",
+        "provider_attention": hosting or provider_match,
         "reasons": reasons,
     }
 
@@ -291,6 +292,7 @@ def render_network_check_html(result: dict[str, Any]) -> str:
         ("ASN", result.get("asn") or "-"),
         ("Proxy", "sim" if result.get("proxy") else "nao"),
         ("Hospedagem/datacenter", "sim" if result.get("hosting") else "nao"),
+        ("Provedor merece atencao", "sim" if result.get("provider_attention") else "nao"),
         ("Rede movel", "sim" if result.get("mobile") else "nao"),
     ]
     reason_items = "".join(f"<li>{html.escape(str(reason))}</li>" for reason in result.get("reasons", []))
@@ -322,12 +324,12 @@ def render_network_check_html(result: dict[str, Any]) -> str:
 <body>
   <main>
     <h1>Verificacao de VPN</h1>
-    <p>Esta pagina verifica sinais de VPN, proxy ou datacenter no IP que acessou o servidor.</p>
+    <p>Esta pagina apenas verifica sinais de VPN, proxy ou datacenter no IP que acessou o servidor. Ela nao bloqueia o acesso.</p>
     <div class="status {status_class}">{html.escape(status_text)}</div>
     <table>{table_rows}</table>
     <h2>Motivos</h2>
     <ul>{reason_items or "<li>Nenhum detalhe disponivel.</li>"}</ul>
-    <p class="note">A deteccao nao e garantia absoluta. Algumas VPNs nao sao detectadas e algumas redes corporativas podem parecer datacenter.</p>
+    <p class="note">A deteccao nao e garantia absoluta. Algumas VPNs nao sao detectadas e algumas redes corporativas podem parecer datacenter. Se aparecer erro 1010 antes desta pagina abrir, o bloqueio veio da protecao da Square/Cloudflare antes de chegar no IATREINER.</p>
   </main>
 </body>
 </html>"""
