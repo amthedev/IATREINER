@@ -42,6 +42,16 @@ Se `DATABASE_SSL_KEY_PATH` e `DATABASE_SSL_ROOT_CERT_PATH` nao forem definidos, 
 
 O app tambem tenta encontrar automaticamente `certificate.pem` em `/application/certificate.pem`, `/application/server/certificate.pem`, `certificate.pem` ou `server/certificate.pem`.
 
+Se voce subir os arquivos pela aba **Files** da Square Cloud com estes nomes, o app tambem detecta automaticamente:
+
+```text
+/application/certificate.pem
+/application/private-key.key
+/application/ca-certificate.crt
+```
+
+Nesse caso, basta manter `DATABASE_URL` configurado e fazer redeploy.
+
 Nao coloque a URL real com senha nem certificados dentro do GitHub. Esses valores devem ficar apenas nas variaveis de ambiente/secrets da Square Cloud.
 
 Se `DATABASE_URL` nao estiver definido, o servidor usa SQLite local. Opcionalmente, configure o caminho do SQLite:

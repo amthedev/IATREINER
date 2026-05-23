@@ -91,8 +91,8 @@ def postgres_connection_url(database_url: str) -> str:
     if ssl_cert_path:
         query.setdefault("sslmode", "verify-ca")
         query.setdefault("sslcert", ssl_cert_path)
-        query.setdefault("sslkey", DATABASE_SSL_KEY_PATH or ssl_cert_path)
-        query.setdefault("sslrootcert", DATABASE_SSL_ROOT_CERT_PATH or ssl_cert_path)
+        query.setdefault("sslkey", postgres_ssl_key_path() or ssl_cert_path)
+        query.setdefault("sslrootcert", postgres_ssl_root_cert_path() or ssl_cert_path)
     else:
         query.setdefault("sslmode", "require")
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
@@ -118,6 +118,34 @@ def postgres_ssl_cert_path() -> str:
     cert_path.write_text(cert_text.rstrip() + "\n", encoding="utf-8")
     cert_path.chmod(0o600)
     return str(cert_path)
+
+
+def postgres_ssl_key_path() -> str:
+    if DATABASE_SSL_KEY_PATH:
+        return DATABASE_SSL_KEY_PATH
+    for candidate in (
+        Path("/application/private-key.key"),
+        Path("/application/server/private-key.key"),
+        Path("private-key.key"),
+        Path("server/private-key.key"),
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return ""
+
+
+def postgres_ssl_root_cert_path() -> str:
+    if DATABASE_SSL_ROOT_CERT_PATH:
+        return DATABASE_SSL_ROOT_CERT_PATH
+    for candidate in (
+        Path("/application/ca-certificate.crt"),
+        Path("/application/server/ca-certificate.crt"),
+        Path("ca-certificate.crt"),
+        Path("server/ca-certificate.crt"),
+    ):
+        if candidate.exists():
+            return str(candidate)
+    return ""
 
 
 def postgres_ssl_cert_text() -> str:
