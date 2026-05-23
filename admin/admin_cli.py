@@ -58,6 +58,12 @@ def load_payload(args: argparse.Namespace) -> dict:
         payload["input_url"] = args.input_url
     if args.output_url:
         payload["output_url"] = args.output_url
+    if args.checkpoint_url:
+        payload["checkpoint_url"] = args.checkpoint_url
+    if args.checkpoint_input_url:
+        payload["checkpoint_input_url"] = args.checkpoint_input_url
+    if args.checkpoint_output_url:
+        payload["checkpoint_output_url"] = args.checkpoint_output_url
     if args.model_url:
         payload["model_url"] = args.model_url
     if args.model_id:
@@ -86,6 +92,8 @@ def load_payload(args: argparse.Namespace) -> dict:
         payload["gradient_accumulation_steps"] = args.gradient_accumulation_steps
     if args.max_steps is not None:
         payload["max_steps"] = args.max_steps
+    if args.checkpoint_save_steps is not None:
+        payload["checkpoint_save_steps"] = args.checkpoint_save_steps
     if args.rank is not None:
         payload["rank"] = args.rank
     if args.adapter_name:
@@ -180,6 +188,9 @@ def main() -> None:
     submit.add_argument("--payload-file", default=None, help="Arquivo JSON com payload do job")
     submit.add_argument("--input-url", default=None, help="URL assinada para dataset ou textos")
     submit.add_argument("--output-url", default=None, help="URL assinada para enviar resultado por PUT")
+    submit.add_argument("--checkpoint-url", default=None, help="URL assinada unica para baixar/enviar checkpoint LoRA")
+    submit.add_argument("--checkpoint-input-url", default=None, help="URL assinada de leitura do checkpoint LoRA")
+    submit.add_argument("--checkpoint-output-url", default=None, help="URL assinada de escrita do checkpoint LoRA")
     submit.add_argument("--model-url", default=None, help="URL assinada para modelo de avaliacao")
     submit.add_argument("--model-id", default=None, help="Modelo Hugging Face para LoRA, ex: distilgpt2")
     submit.add_argument("--base-model-url", default=None, help="URL assinada do modelo base para LoRA")
@@ -194,6 +205,7 @@ def main() -> None:
     submit.add_argument("--batch-size", type=int, default=None)
     submit.add_argument("--gradient-accumulation-steps", type=int, default=None)
     submit.add_argument("--max-steps", type=int, default=None)
+    submit.add_argument("--checkpoint-save-steps", type=int, default=None)
     submit.add_argument("--rank", type=int, default=None)
     submit.add_argument("--adapter-name", default=None)
     submit.add_argument("--batch-id", default=None)

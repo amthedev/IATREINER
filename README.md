@@ -343,8 +343,10 @@ Payload:
   "model_id": "distilgpt2",
   "dataset_url": "https://storage.example.com/dataset.json?assinatura=...",
   "output_url": "https://storage.example.com/adapter.zip?assinatura=...",
+  "checkpoint_url": "https://storage.example.com/checkpoints/job-1.zip?assinatura=...",
   "adapter_name": "meu-adapter",
   "max_steps": 100,
+  "checkpoint_save_steps": 10,
   "rank": 8,
   "target_modules": ["c_attn"]
 }
@@ -369,6 +371,10 @@ ou:
 ```
 
 Se `output_url` for informado, o worker envia um `.zip` com o adapter LoRA por `PUT`. Se nao for informado, o adapter fica salvo localmente no worker em `~/.consentcompute/lora_runs/`.
+
+Para nao perder progresso quando um PC cai, informe `checkpoint_url` ou o par `checkpoint_input_url`/`checkpoint_output_url`. O worker salva checkpoints a cada `checkpoint_save_steps`, envia o `.zip` para o storage externo e registra no SQLite do servidor o ultimo step salvo. Se o job voltar para a fila, o proximo worker recebe esse checkpoint e tenta continuar dali.
+
+Nao coloque o arquivo do checkpoint dentro do SQLite. O banco guarda so metadados; o arquivo grande deve ficar em S3, R2, Backblaze ou storage equivalente.
 
 Para modelos que nao sejam GPT-2/DistilGPT2, ajuste `target_modules` via CLI usando `--payload-json`. Modelos LLaMA/Mistral normalmente usam algo como `["q_proj", "v_proj"]`.
 
@@ -420,10 +426,11 @@ Se um computador desligar, perder internet ou fechar o app no meio de um job, o 
 - Enquanto um job esta rodando, o app voluntario envia heartbeat periodico.
 - Se o heartbeat do worker ou do job expirar, o servidor devolve o job para `pending`.
 - Outro computador compativel pode pegar o mesmo job e tentar novamente.
+- Se o job LoRA tiver checkpoint configurado, o outro computador tenta continuar do ultimo checkpoint salvo.
 - Cada job tem contador de `attempts`; depois de 3 tentativas expiradas, o servidor marca como `failed`.
 - A tela grafica do admin mostra o numero de tentativas de cada job.
 
-Para jobs LoRA grandes, isso evita job preso quando um PC cai. O treino ainda reinicia aquele job do comeco em outro worker; retomada por checkpoint parcial deve ser adicionada depois usando storage externo para salvar checkpoints durante o treino.
+Para jobs LoRA grandes, isso evita job preso quando um PC cai e reduz perda de progresso. O maximo que pode ser perdido e o trabalho feito depois do ultimo checkpoint enviado.
 
 ## Proximos passos seguros
 

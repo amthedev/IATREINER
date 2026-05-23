@@ -340,7 +340,15 @@ class VolunteerApp(tk.Tk):
             elif job_type == "evaluate_model":
                 output = run_evaluate_model(payload, client, self.is_running)
             elif job_type == "train_lora":
-                output = run_train_lora(payload, client, self.gpu_var.get(), self.is_running)
+                output = run_train_lora(
+                    payload,
+                    client,
+                    self.gpu_var.get(),
+                    self.is_running,
+                    self.worker_id,
+                    self.worker_token,
+                    job_id,
+                )
             else:
                 raise RuntimeError("tipo de job nao permitido pelo cliente")
 
@@ -708,7 +716,15 @@ def run_evaluate_model(payload: dict, client: ApiClient, is_running) -> dict:
     return result
 
 
-def run_train_lora(payload: dict, client: ApiClient, allow_gpu: bool, is_running) -> dict:
+def run_train_lora(
+    payload: dict,
+    client: ApiClient,
+    allow_gpu: bool,
+    is_running,
+    worker_id: str,
+    worker_token: str,
+    job_id: str,
+) -> dict:
     if not allow_gpu:
         raise RuntimeError("voluntario nao autorizou jobs com GPU/PyTorch")
     if not is_running():
@@ -719,7 +735,30 @@ def run_train_lora(payload: dict, client: ApiClient, allow_gpu: bool, is_running
     except Exception as exc:
         raise RuntimeError("Executor LoRA nao encontrado no worker") from exc
 
-    result = train_lora_job(payload, APP_DIR / "lora_runs", is_running)
+    def on_checkpoint(metadata: dict) -> None:
+        checkpoint_zip_path = metadata.get("checkpoint_zip_path")
+        checkpoint_output_url = payload.get("checkpoint_output_url") or payload.get("checkpoint_url")
+        checkpoint_read_url = (
+            payload.get("checkpoint_input_url")
+            or payload.get("checkpoint_url")
+            or checkpoint_output_url
+        )
+        uploaded = False
+        if checkpoint_output_url and checkpoint_zip_path:
+            with Path(str(checkpoint_zip_path)).open("rb") as handle:
+                client.put_bytes(str(checkpoint_output_url), handle.read(), "application/zip")
+            uploaded = True
+        client.post(
+            f"/api/workers/{worker_id}/jobs/{job_id}/checkpoint",
+            {
+                "worker_token": worker_token,
+                "checkpoint_url": str(checkpoint_read_url) if checkpoint_read_url else None,
+                "checkpoint_step": int(metadata.get("checkpoint_step") or 0),
+                "metadata": {"uploaded": uploaded},
+            },
+        )
+
+    result = train_lora_job(payload, APP_DIR / "lora_runs", is_running, on_checkpoint=on_checkpoint)
     output_url = payload.get("output_url")
     uploaded = False
     if output_url and result.get("adapter_zip_path"):

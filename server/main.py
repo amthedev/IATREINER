@@ -90,13 +90,19 @@ def init_db() -> None:
                 error TEXT,
                 attempts INTEGER NOT NULL DEFAULT 0,
                 last_heartbeat_at REAL,
-                reset_reason TEXT
+                reset_reason TEXT,
+                checkpoint_url TEXT,
+                checkpoint_step INTEGER,
+                checkpoint_at REAL
             )
             """
         )
         ensure_column(connection, "jobs", "attempts", "attempts INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "jobs", "last_heartbeat_at", "last_heartbeat_at REAL")
         ensure_column(connection, "jobs", "reset_reason", "reset_reason TEXT")
+        ensure_column(connection, "jobs", "checkpoint_url", "checkpoint_url TEXT")
+        ensure_column(connection, "jobs", "checkpoint_step", "checkpoint_step INTEGER")
+        ensure_column(connection, "jobs", "checkpoint_at", "checkpoint_at REAL")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at)")
         connection.commit()
 
@@ -142,6 +148,13 @@ class JobResultRequest(BaseModel):
     status: Literal["completed", "failed", "cancelled"]
     output: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+
+
+class JobCheckpointRequest(BaseModel):
+    worker_token: str
+    checkpoint_url: str | None = Field(default=None, max_length=2000)
+    checkpoint_step: int = Field(ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def require_admin(authorization: str | None = Header(default=None)) -> None:
@@ -348,8 +361,42 @@ def next_job(worker_id: str, worker_token: str) -> dict[str, Any]:
                 job["last_heartbeat_at"] = started_at
                 job["attempts"] = int(job.get("attempts") or 0) + 1
                 job["error"] = None
+                if job.get("checkpoint_url"):
+                    job["payload"].setdefault("checkpoint_input_url", job["checkpoint_url"])
                 return {"job": public_job(job)}
     return {"job": None}
+
+
+@app.post("/api/workers/{worker_id}/jobs/{job_id}/checkpoint")
+def report_checkpoint(worker_id: str, job_id: str, request: JobCheckpointRequest) -> dict[str, str]:
+    with db_lock, db_connect() as connection:
+        get_worker(connection, worker_id, request.worker_token)
+        row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="job nao encontrado")
+        job = row_to_job(row)
+        if job.get("worker_id") != worker_id:
+            raise HTTPException(status_code=403, detail="job pertence a outro worker")
+        if job.get("status") != "running":
+            raise HTTPException(status_code=409, detail="job nao esta mais em execucao")
+
+        checkpoint_url = request.checkpoint_url
+        if checkpoint_url and not checkpoint_url.startswith(("https://", "http://")):
+            raise HTTPException(status_code=400, detail="checkpoint_url precisa usar http ou https")
+        checkpoint_at = now()
+        connection.execute(
+            """
+            UPDATE jobs
+            SET checkpoint_url = COALESCE(?, checkpoint_url),
+                checkpoint_step = ?,
+                checkpoint_at = ?,
+                last_heartbeat_at = ?
+            WHERE job_id = ?
+            """,
+            (checkpoint_url, request.checkpoint_step, checkpoint_at, checkpoint_at, job_id),
+        )
+        connection.commit()
+    return {"status": "ok"}
 
 
 @app.post("/api/workers/{worker_id}/jobs/{job_id}/result")
@@ -499,9 +546,13 @@ def sanitize_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "input_url": "url",
                 "dataset_url": "url",
                 "output_url": "url",
+                "checkpoint_url": "url",
+                "checkpoint_input_url": "url",
+                "checkpoint_output_url": "url",
                 "texts": "list",
                 "adapter_name": "str",
                 "max_steps": "int",
+                "checkpoint_save_steps": "int",
                 "rank": "int",
                 "batch_size": "int",
                 "gradient_accumulation_steps": "int",
@@ -514,6 +565,7 @@ def sanitize_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
             },
             int_ranges={
                 "max_steps": (1, 5000),
+                "checkpoint_save_steps": (1, 1000),
                 "rank": (1, 128),
                 "batch_size": (1, 16),
                 "gradient_accumulation_steps": (1, 64),
@@ -586,6 +638,9 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "attempts": job.get("attempts", 0),
         "last_heartbeat_at": job.get("last_heartbeat_at"),
         "reset_reason": job.get("reset_reason"),
+        "checkpoint_url": job.get("checkpoint_url"),
+        "checkpoint_step": job.get("checkpoint_step"),
+        "checkpoint_at": job.get("checkpoint_at"),
     }
 
 

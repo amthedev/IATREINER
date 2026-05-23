@@ -29,6 +29,7 @@ class AdminGui(tk.Tk):
         self.model_id_var = tk.StringVar(value="distilgpt2")
         self.dataset_url_var = tk.StringVar(value="")
         self.output_url_var = tk.StringVar(value="")
+        self.checkpoint_url_var = tk.StringVar(value="")
         self.max_steps_var = tk.IntVar(value=20)
         self.rank_var = tk.IntVar(value=8)
 
@@ -103,6 +104,10 @@ class AdminGui(tk.Tk):
         ttk.Label(actions, text="Rank").grid(row=3, column=6, sticky="w", pady=(8, 0))
         ttk.Spinbox(actions, from_=1, to=128, textvariable=self.rank_var, width=7).grid(
             row=3, column=7, padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(actions, text="Checkpoint URL").grid(row=4, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(actions, textvariable=self.checkpoint_url_var).grid(
+            row=4, column=1, columnspan=7, sticky="ew", padx=(6, 12), pady=(8, 0)
         )
 
         panes = ttk.PanedWindow(root, orient="horizontal")
@@ -196,6 +201,8 @@ class AdminGui(tk.Tk):
             }
             if self.output_url_var.get().strip():
                 payload["output_url"] = self.output_url_var.get().strip()
+            if self.checkpoint_url_var.get().strip():
+                payload["checkpoint_url"] = self.checkpoint_url_var.get().strip()
             if not payload["dataset_url"]:
                 messagebox.showwarning("IATREINER Admin", "Informe uma Dataset URL para train_lora.")
                 return

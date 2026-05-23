@@ -30,6 +30,8 @@ MAX_JOB_ATTEMPTS=3
 
 Com os valores padrao, se um computador parar de responder, o job volta para a fila e pode ser executado por outro worker. Depois de 3 expiracoes, o job vira `failed`.
 
+Para nao perder progresso em jobs LoRA longos, configure no job uma URL de checkpoint em storage externo (`checkpoint_url`) ou URLs separadas de leitura/escrita (`checkpoint_input_url` e `checkpoint_output_url`). O SQLite da Square guarda apenas metadados do ultimo checkpoint; o arquivo `.zip` fica no storage externo.
+
 ## Deploy via GitHub
 
 1. Abra a Square Cloud.
