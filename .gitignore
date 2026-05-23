@@ -6,3 +6,7 @@ data/
 client/dist/
 client/build/
 client/*.spec
+dist/
+build/
+*.spec
+installer/Output/

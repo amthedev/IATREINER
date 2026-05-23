@@ -1,0 +1,44 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "client/**"
+      - "installer/**"
+      - "scripts/build_windows.ps1"
+      - ".github/workflows/windows-installer.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build executable and installer
+        shell: pwsh
+        run: .\scripts\build_windows.ps1
+
+      - name: Upload portable executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: IATREINER-portable
+          path: dist/IATREINER.exe
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: IATREINER-installer
+          path: installer/Output/IATREINER-Setup.exe

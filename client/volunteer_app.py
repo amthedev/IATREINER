@@ -72,7 +72,7 @@ class ApiClient:
 class VolunteerApp(tk.Tk):
     def __init__(self, start_minimized: bool = False, auto_connect: bool = False):
         super().__init__()
-        self.title("ConsentCompute")
+        self.title("IATREINER")
         self.geometry("600x640")
         self.minsize(560, 560)
 
@@ -105,7 +105,7 @@ class VolunteerApp(tk.Tk):
         root.pack(fill="both", expand=True)
         root.columnconfigure(1, weight=1)
 
-        ttk.Label(root, text="ConsentCompute", font=("Segoe UI", 20, "bold")).grid(
+        ttk.Label(root, text="IATREINER", font=("Segoe UI", 20, "bold")).grid(
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 14)
         )
 
@@ -373,10 +373,13 @@ def set_windows_autostart(enabled: bool) -> tuple[bool, str]:
     if platform.system() != "Windows":
         return False, "Inicializacao automatica so foi implementada para Windows neste MVP."
     startup_dir = Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
-    startup_path = startup_dir / "ConsentCompute.cmd"
+    startup_path = startup_dir / "IATREINER.cmd"
+    legacy_startup_path = startup_dir / "ConsentCompute.cmd"
     if not enabled:
         if startup_path.exists():
             startup_path.unlink()
+        if legacy_startup_path.exists():
+            legacy_startup_path.unlink()
         return True, "Inicializacao automatica desativada."
 
     startup_dir.mkdir(parents=True, exist_ok=True)

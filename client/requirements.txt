@@ -1,0 +1,3 @@
+# The volunteer desktop app currently uses only Python standard-library modules.
+# This file exists so the Windows packaging workflow can install client
+# dependencies later without changing the build scripts.

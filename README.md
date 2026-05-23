@@ -99,19 +99,37 @@ squarecloud upload
 
 Veja o passo a passo em `DEPLOY_SQUARE.md`.
 
-## Criando executavel Windows
+## Instalador Windows sem Python
+
+Para a pessoa voluntaria, o ideal e baixar um arquivo unico:
+
+```text
+IATREINER-Setup.exe
+```
+
+Esse instalador ja inclui o Python embutido no app. A pessoa nao precisa instalar Python, Git ou dependencias.
+
+Como gerar pelo GitHub:
+
+1. Abra o repositorio no GitHub.
+2. Entre em `Actions`.
+3. Rode o workflow `Build Windows installer`.
+4. Baixe o artefato `IATREINER-installer`.
+5. Envie o arquivo `IATREINER-Setup.exe` para o voluntario.
+
+Ao dar dois cliques no instalador, ele instala o app no usuario atual do Windows e cria atalho no menu iniciar. O app nao liga inicializacao automatica sozinho; isso continua sendo uma opcao visivel dentro do app.
+
+## Criando executavel Windows localmente
 
 No computador onde voce quer gerar o instalador/executavel:
 
 ```powershell
-cd client
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install pyinstaller
-pyinstaller --onefile --windowed --name ConsentCompute volunteer_app.py
+.\scripts\build_windows.ps1
 ```
 
-O executavel fica em `client/dist/ConsentCompute.exe`.
+O executavel portatil fica em `dist\IATREINER.exe`. Se o Inno Setup estiver instalado, o instalador fica em `installer\Output\IATREINER-Setup.exe`.
 
 ## Rodando em segundo plano no Windows
 
@@ -123,12 +141,12 @@ O app tem duas opcoes visiveis para o voluntario:
 Quando a primeira opcao e marcada no Windows, o app cria este arquivo:
 
 ```text
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ConsentCompute.cmd
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\IATREINER.cmd
 ```
 
 Esse arquivo abre o app minimizado no proximo login do Windows. A colaboracao so comeca automaticamente se a segunda opcao tambem estiver marcada e se o consentimento estiver salvo no app.
 
-Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o Windows`, ou apagar o arquivo `ConsentCompute.cmd` da pasta Startup.
+Para desativar, basta abrir o app e desmarcar `Iniciar este app automaticamente com o Windows`, ou apagar o arquivo `IATREINER.cmd` da pasta Startup.
 
 Tambem da para iniciar manualmente minimizado:
 
